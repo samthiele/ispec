@@ -1,0 +1,2 @@
+# ispec
+Hyperspectral search engine
