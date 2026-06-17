@@ -1,0 +1,28 @@
+.tri-layout {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  height: 100%;
+  min-height: 0;
+}
+
+.tri-layout-left {
+  min-width: 0;
+  min-height: 0;
+  border-right: 1px solid var(--border-color);
+}
+
+.tri-layout-right {
+  display: grid;
+  grid-template-rows: 1fr 1fr;
+  min-width: 0;
+  min-height: 0;
+}
+
+.tri-layout-right-top {
+  min-height: 0;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.tri-layout-right-bottom {
+  min-height: 0;
+}

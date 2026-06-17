@@ -1,0 +1,15 @@
+.bi-layout {
+  display: grid;
+  grid-template-rows: 1fr 1fr;
+  height: 100%;
+  min-height: 0;
+}
+
+.bi-layout-top {
+  min-height: 0;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.bi-layout-bottom {
+  min-height: 0;
+}

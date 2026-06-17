@@ -1,0 +1,31 @@
+.quad-layout {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  grid-template-rows: 1fr 1fr;
+  height: 100%;
+  min-height: 0;
+}
+
+.quad-layout-top-left {
+  min-height: 0;
+  min-width: 0;
+  border-right: 1px solid var(--border-color);
+  border-bottom: 1px solid var(--border-color);
+}
+
+.quad-layout-top-right {
+  min-height: 0;
+  min-width: 0;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.quad-layout-bottom-left {
+  min-height: 0;
+  min-width: 0;
+  border-right: 1px solid var(--border-color);
+}
+
+.quad-layout-bottom-right {
+  min-height: 0;
+  min-width: 0;
+}

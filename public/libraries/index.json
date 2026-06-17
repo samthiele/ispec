@@ -1,0 +1,21 @@
+{
+  "libraries": [
+    {
+      "id": "usgs_minerals",
+      "name": "USGS Spectral Library (V7) Chapter M: Minerals",
+      "source": "https://www.usgs.gov/data/usgs-spectral-library-version-7-data",
+      "description": "Mineral spectra measured with laboratory, field, and airborne spectrometers from the USGS Spectroscopy Lab.",
+      "file": "usgs_minerals.fda",
+      "default": true
+    },
+    {
+      "id": "usgs_vegetation",
+      "name": "USGS Spectral Library (V7) Chapter V: Vegetation",
+      "source": "https://www.usgs.gov/data/usgs-spectral-library-version-7-data",
+      "description": "Vegetation spectra measured with laboratory, field, and airborne spectrometers from the USGS Spectroscopy Lab.",
+      "file": "usgs_vegetation.fda",
+      "default": false
+    }
+
+  ]
+}

@@ -1,0 +1,135 @@
+.widget-spectra {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  height: 100%;
+  min-height: 0;
+  padding: 0.5rem;
+}
+
+.spectra-status {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 0.78rem;
+}
+
+.spectra-status--error {
+  color: var(--error);
+}
+
+.spectra-plot-host {
+  flex: 1;
+  min-height: 0;
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  background: #121316;
+}
+
+.spectra-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  padding: 1rem;
+  color: var(--text-muted);
+  font-size: 0.82rem;
+  text-align: center;
+}
+
+.spectra-svg {
+  display: block;
+  user-select: none;
+}
+
+.spectra-axis-pan {
+  touch-action: none;
+}
+
+.spectra-axis-pan--x {
+  cursor: grab;
+}
+
+.spectra-axis-pan--y {
+  cursor: grab;
+}
+
+.spectra-axis-pan--x:active {
+  cursor: grabbing;
+}
+
+.spectra-axis-pan--y:active {
+  cursor: grabbing;
+}
+
+.spectra-band-nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.spectra-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.55rem 1rem;
+}
+
+.spectra-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.65rem 1rem;
+}
+
+.spectra-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.78rem;
+  color: var(--text-color);
+  cursor: pointer;
+  user-select: none;
+}
+
+.spectra-control input {
+  margin: 0;
+  accent-color: var(--accent);
+}
+
+.spectra-control:has(input:disabled) {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.spectra-band-button {
+  font: inherit;
+  font-size: 0.78rem;
+  padding: 0.25rem 0.65rem;
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  background: var(--input-bg);
+  color: var(--text-color);
+}
+
+.spectra-band-button:hover:not(:disabled) {
+  background: #3c4043;
+}
+
+.spectra-band-button--active {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.spectra-band-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.spectra-hover-name {
+  margin: 0;
+  color: #22d3ee;
+  font-size: 0.72rem;
+  line-height: 1.35;
+  word-break: break-word;
+}
