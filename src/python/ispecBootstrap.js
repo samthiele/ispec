@@ -318,6 +318,117 @@ def export_spectra_plot_data(page_start, page_end, lookup_map=None):
     return {"spectra": spectra}
 `
 
+export const ISPEC_LLM_BOOTSTRAP = `
+from hylite.analyse.fourier import (
+    _archiveDisplayNameMatchesQuery,
+    _normalizeSampleNameQueries,
+    _parseOptionalArchivePrefix,
+    _sampleNames,
+)
+
+SPECTRAL_BANDS_NM = {
+    "VNIR": (400.0, 1000.0),
+    "SWIR": (1000.0, 2500.0),
+    "MWIR": (2500.0, 5000.0),
+    "LWIR": (5000.0, 14500.0),
+}
+
+
+def _resolve_hyfourier_row(library, lookup):
+    queries = _normalizeSampleNameQueries(str(lookup))
+    for query in queries:
+        query_key, _ = _parseOptionalArchivePrefix(query)
+        if query_key is not None:
+            if query_key not in library:
+                continue
+            entries = [(query_key, library[query_key])]
+        else:
+            entries = library.items()
+        for key, hyf in entries:
+            labels = _sampleNames(
+                hyf.header,
+                hyf.n_spectra,
+                hyf.original_shape,
+                hyf.spatial_shape,
+            )
+            for row, label in enumerate(labels):
+                if hyf._valid[row] and _archiveDisplayNameMatchesQuery(key, label, query):
+                    return hyf, row, key, label
+    raise ValueError("No spectra match name %r in any archive entry." % lookup)
+
+
+def _wavelength_range_nm(hyf):
+    wav_min = float(hyf.wav_range[0])
+    wav_max = float(hyf.wav_range[1])
+    if wav_max <= 100.0:
+        wav_min *= 1000.0
+        wav_max *= 1000.0
+    return wav_min, wav_max
+
+
+def _top_features(features, n=4):
+    ranked = sorted(
+        [f for f in features if not f.get("fake", False)],
+        key=lambda f: -float(f["prominence"]),
+    )[: int(n)]
+    return [
+        {
+            "wavelength_nm": float(f["wavelength"]),
+            "prominence": float(f["prominence"]),
+        }
+        for f in ranked
+    ]
+
+
+def export_selection_spectral_features(names, lookup_map=None):
+    lookup_map = lookup_map or {}
+    spectra = []
+
+    for name in names:
+        name = str(name)
+        lookup = str(lookup_map.get(name, name))
+        try:
+            hyf, row, archive_key, sample_label = _resolve_hyfourier_row(library, lookup)
+        except ValueError as exc:
+            spectra.append({"name": name, "error": str(exc)})
+            continue
+
+        wav_min, wav_max = _wavelength_range_nm(hyf)
+        bands = {}
+        for band_name, (band_min, band_max) in SPECTRAL_BANDS_NM.items():
+            available = _spans_wavelength_range([wav_min, wav_max], band_min, band_max)
+            if not available:
+                bands[band_name] = {
+                    "available": False,
+                    "range_nm": [band_min, band_max],
+                }
+                continue
+
+            minima = hyf.minima(minw=band_min, maxW=band_max, format="list")
+            maxima = hyf.maxima(minw=band_min, maxW=band_max, format="list")
+            row_min = minima[row] if row < len(minima) else []
+            row_max = maxima[row] if row < len(maxima) else []
+            bands[band_name] = {
+                "available": True,
+                "range_nm": [band_min, band_max],
+                "minima": _top_features(row_min, 4),
+                "maxima": _top_features(row_max, 4),
+            }
+
+        spectra.append(
+            {
+                "name": name,
+                "label": lookup,
+                "archive": archive_key,
+                "sample": sample_label,
+                "wavelength_range_nm": [wav_min, wav_max],
+                "bands": bands,
+            }
+        )
+
+    return {"spectra": spectra}
+`
+
 export const ISPEC_BOOTSTRAP = `
 class AppState:
     def __init__(self):
@@ -356,6 +467,8 @@ export const PYTHON_INIT_CODE = `
 ${ISPEC_LIBRARY_BOOTSTRAP}
 
 ${ISPEC_QUERY_BOOTSTRAP}
+
+${ISPEC_LLM_BOOTSTRAP}
 
 ${ISPEC_BOOTSTRAP}
 

@@ -23,6 +23,7 @@
   border: 1px solid var(--border-color);
   border-radius: 4px;
   background: #121316;
+  touch-action: none;
 }
 
 .spectra-empty {
@@ -39,6 +40,7 @@
 .spectra-svg {
   display: block;
   user-select: none;
+  touch-action: none;
 }
 
 .spectra-axis-pan {

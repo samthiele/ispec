@@ -19,6 +19,7 @@ import {
   removePythonSelection,
   runPythonSearch,
 } from '../../app/querySync.js'
+import { useLongPress } from '../../app/useLongPress.js'
 import { useAppState } from '../../context/useAppState.js'
 import { usePyodide } from '../../context/usePyodide.js'
 import './Query.css'
@@ -32,6 +33,39 @@ function parsePositiveNumber(value, fallback) {
 
 function formatScorePercent(score) {
   return `${(Number(score) * 100).toFixed(1)}%`
+}
+
+const SELECT_ACTION_HINT = 'Double-click or long-press to select'
+const DESELECT_ACTION_HINT = 'Double-click or long-press to remove'
+
+function QueryResultItem({
+  rank,
+  name,
+  score,
+  isSelected,
+  isHovered,
+  nameStyle,
+  onSelect,
+  onHover,
+}) {
+  const longPress = useLongPress(() => onSelect(name))
+
+  return (
+    <li
+      {...longPress}
+      className={`query-result${isSelected ? ' query-result--selected' : ''}${isHovered ? ' query-item--hovered' : ''}`}
+      onDoubleClick={() => onSelect(name)}
+      onMouseEnter={() => onHover(name)}
+      onMouseLeave={() => onHover(null)}
+      title={SELECT_ACTION_HINT}
+    >
+      <span className="query-result-rank">{rank}.</span>
+      <span className="query-result-name" style={nameStyle}>
+        {name}
+      </span>
+      <span className="query-result-score">{formatScorePercent(score)}</span>
+    </li>
+  )
 }
 
 function SelectedSpectrumItem({
@@ -48,14 +82,16 @@ function SelectedSpectrumItem({
   const parsed = useMemo(() => parseSpectrumName(canonical), [canonical])
   const group = selectionMeta?.[canonical]?.group ?? parsed.group ?? ''
   const displayLabel = formatSpectrumDisplayName(parsed, group)
+  const longPress = useLongPress(() => onDeselect(canonical))
 
   return (
     <li
+      {...longPress}
       className={`query-selected-item${hoveredSpectrum === canonical ? ' query-item--hovered' : ''}`}
       onDoubleClick={() => onDeselect(canonical)}
       onMouseEnter={() => onHover(canonical)}
       onMouseLeave={() => onHover(null)}
-      title={`${displayLabel}\nDouble-click to remove`}
+      title={`${displayLabel}\n${DESELECT_ACTION_HINT}`}
     >
       <input
         type="color"
@@ -389,7 +425,9 @@ export default function Query() {
       {error ? <p className="query-status query-status--error">{error}</p> : null}
 
       <div className="query-panels">
-        <div className="query-results-panel query-selected-panel">
+        <div
+          className={`query-results-panel query-selected-panel${selection.length === 0 ? ' query-selected-panel--empty' : ''}${selection.length > 5 ? ' query-selected-panel--capped' : ''}`}
+        >
           <div className="query-results-header">
             <h3 className="query-results-title">Selected</h3>
             <span className="query-results-range">
@@ -399,7 +437,7 @@ export default function Query() {
 
           <ul className="query-results" role="list">
             {selection.length === 0 ? (
-              <li className="query-results-empty">Double-click a result to select it.</li>
+              <li className="query-results-empty">Double-click or long-press a result to select it.</li>
             ) : (
               selection.map((name) => (
                 <SelectedSpectrumItem
@@ -448,20 +486,17 @@ export default function Query() {
                   )
 
                   return (
-                  <li
-                    key={`${rank}-${name}`}
-                    className={`query-result${isSelected ? ' query-result--selected' : ''}${isHovered ? ' query-item--hovered' : ''}`}
-                    onDoubleClick={() => handleSelectResult(name)}
-                    onMouseEnter={() => setHoveredSpectrum(name)}
-                    onMouseLeave={() => setHoveredSpectrum(null)}
-                    title="Double-click to select"
-                  >
-                    <span className="query-result-rank">{rank}.</span>
-                    <span className="query-result-name" style={nameStyle}>
-                      {name}
-                    </span>
-                    <span className="query-result-score">{formatScorePercent(score)}</span>
-                  </li>
+                    <QueryResultItem
+                      key={`${rank}-${name}`}
+                      rank={rank}
+                      name={name}
+                      score={score}
+                      isSelected={isSelected}
+                      isHovered={isHovered}
+                      nameStyle={nameStyle}
+                      onSelect={handleSelectResult}
+                      onHover={setHoveredSpectrum}
+                    />
                   )
                 })
               )}

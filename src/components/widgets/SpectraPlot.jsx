@@ -8,6 +8,8 @@ import { AxisBottom, AxisLeft } from '@visx/axis'
 import { ClipPath } from '@visx/clip-path'
 import { ParentSize } from '@visx/responsive'
 import { bisectLeft } from 'd3-array'
+import { useCoarsePointer } from '../../app/useCoarsePointer.js'
+import { useSpectraPlotGestures } from '../../app/useSpectraPlotGestures.js'
 import { spectrumStrokeStyle } from '../../app/spectraStyling.js'
 import { ALL_WAVELENGTH_MAX_NM } from '../../app/spectralBands.js'
 import { Y_AXIS_PAD_FRACTION } from '../../app/spectraSync.js'
@@ -92,6 +94,8 @@ function SpectraPlotInner({
   selectedColors = {},
 }) {
   const clipId = useId().replace(/:/g, '')
+  const plotGestureRef = useRef(null)
+  const coarsePointer = useCoarsePointer()
   const yAxisLabel = applyHull ? 'Hull corrected reflectance' : 'Reflectance (%)'
   const innerWidth = Math.max(width - margin.left - margin.right, 0)
   const innerHeight = Math.max(height - margin.top - margin.bottom, 0)
@@ -149,14 +153,27 @@ function SpectraPlotInner({
     [onBrushZoom, xDomain, yDomain],
   )
 
+  useSpectraPlotGestures({
+    targetRef: plotGestureRef,
+    margin,
+    xDomain,
+    yDomain,
+    innerWidth,
+    innerHeight,
+    onZoom: onBrushZoom,
+    onPan: onViewPan,
+    enableWheelZoom: true,
+    enableTouchGestures: coarsePointer,
+  })
+
   const [cursor, setCursor] = useState(null)
 
-  const handleMouseLeave = useCallback(() => {
+  const handlePointerLeave = useCallback(() => {
     setCursor(null)
     onHoverSpectrum(null)
   }, [onHoverSpectrum])
 
-  const handleMouseMove = useCallback(
+  const handlePointerMove = useCallback(
     (event) => {
       const point = chartPoint(event)
       if (!point) return
@@ -277,7 +294,13 @@ function SpectraPlotInner({
   if (innerWidth <= 0 || innerHeight <= 0) return null
 
   return (
-    <svg width={width} height={height} className="spectra-svg" onClick={handlePlotClick}>
+    <svg
+      ref={plotGestureRef}
+      width={width}
+      height={height}
+      className="spectra-svg"
+      onClick={handlePlotClick}
+    >
       <Group left={margin.left} top={margin.top}>
         <rect
           x={0}
@@ -286,8 +309,10 @@ function SpectraPlotInner({
           height={innerHeight}
           fill="#121316"
           stroke="#3c4043"
-          onMouseMove={handleMouseMove}
-          onMouseLeave={handleMouseLeave}
+          onPointerMove={handlePointerMove}
+          onPointerLeave={handlePointerLeave}
+          onMouseMove={handlePointerMove}
+          onMouseLeave={handlePointerLeave}
         />
 
         <ClipPath id={clipId}>
@@ -315,24 +340,27 @@ function SpectraPlotInner({
           })}
         </Group>
 
-        <Brush
-          xScale={xScale}
-          yScale={yScale}
-          width={innerWidth}
-          height={innerHeight}
-          margin={margin}
-          handleSize={8}
-          brushDirection="both"
-          resetOnEnd
-          onBrushEnd={handleBrushEnd}
-          onMouseMove={handleMouseMove}
-          onMouseLeave={handleMouseLeave}
-          selectedBoxStyle={{
-            fill: 'rgba(34, 211, 238, 0.12)',
-            stroke: '#22d3ee',
-            strokeWidth: 1,
-          }}
-        />
+        {!coarsePointer ? (
+          <Brush
+            xScale={xScale}
+            yScale={yScale}
+            width={innerWidth}
+            height={innerHeight}
+            margin={margin}
+            handleSize={8}
+            brushDirection="both"
+            resetOnEnd
+            useWindowMoveEvents
+            onBrushEnd={handleBrushEnd}
+            onMouseMove={handlePointerMove}
+            onMouseLeave={handlePointerLeave}
+            selectedBoxStyle={{
+              fill: 'rgba(34, 211, 238, 0.12)',
+              stroke: '#22d3ee',
+              strokeWidth: 1,
+            }}
+          />
+        ) : null}
 
         {cursor ? (
           <Group pointerEvents="none" aria-hidden="true">

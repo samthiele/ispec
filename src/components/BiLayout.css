@@ -1,6 +1,6 @@
 .bi-layout {
   display: grid;
-  grid-template-rows: 1fr 1fr;
+  grid-template-rows: minmax(0, 5fr) minmax(0, 7fr);
   height: 100%;
   min-height: 0;
 }

@@ -351,6 +351,14 @@ export default function Spectra() {
           >
             Hull
           </button>
+          <button
+            type="button"
+            className="spectra-band-button"
+            onClick={handleResetZoom}
+            disabled={status !== 'ready' || plotBusy || !hasVisibleSpectra}
+          >
+            Reset zoom
+          </button>
         </div>
 
         <div className="spectra-band-nav">

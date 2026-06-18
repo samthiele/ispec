@@ -5,6 +5,10 @@
   height: 100%;
   min-height: 0;
   padding: 0.5rem;
+  --query-row-height: 2.15rem;
+  --query-selected-row-height: 5rem;
+  --query-panel-header-height: 2.1rem;
+  --query-results-min-rows: 5;
 }
 
 .query-help {
@@ -116,8 +120,32 @@
 }
 
 .query-selected-panel {
-  flex: 0 1 35%;
-  max-height: 40%;
+  flex: 0 0 auto;
+}
+
+.query-selected-panel .query-results {
+  flex: 0 0 auto;
+  overflow-y: visible;
+}
+
+.query-selected-panel--empty .query-results {
+  overflow: visible;
+}
+
+.query-selected-panel:not(.query-selected-panel--empty):not(.query-selected-panel--capped) .query-results {
+  max-height: none;
+}
+
+.query-selected-panel--capped .query-results {
+  max-height: calc(var(--query-selected-row-height) * 5 + 0.5rem);
+  overflow-y: auto;
+}
+
+.bi-layout .query-results-group > .query-results-panel {
+  flex: 1;
+  min-height: calc(
+    var(--query-row-height) * var(--query-results-min-rows) + var(--query-panel-header-height)
+  );
 }
 
 .query-results-header {
@@ -167,6 +195,8 @@
   border-radius: 3px;
   font-size: 0.82rem;
   cursor: pointer;
+  touch-action: manipulation;
+  -webkit-touch-callout: none;
 }
 
 .query-result:hover {
@@ -207,6 +237,8 @@
   border-radius: 3px;
   font-size: 0.82rem;
   cursor: pointer;
+  touch-action: manipulation;
+  -webkit-touch-callout: none;
 }
 
 .query-selected-item:hover {

@@ -5,9 +5,9 @@ import { normalizeSelectionMeta } from './selectionMeta.js'
 export const APP_STATE_VERSION = 2
 
 export const LAYOUT_PANE_DEFAULTS = {
-  tri: ['query', 'spectra', 'console'],
-  bi: ['query', 'spectra'],
-  quad: ['query', 'spectra', 'biplot', 'console'],
+  tri: ['query', 'spectra', 'llm'],
+  bi: ['spectra', 'query'],
+  quad: ['query', 'spectra', 'biplot', 'llm'],
 }
 
 export function defaultViewMode() {
