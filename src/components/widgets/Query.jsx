@@ -1,12 +1,28 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   formatSpectrumDisplayName,
+  mixPercentFor,
   parseSpectrumName,
   pruneSelectionMeta,
   selectedColorFor,
   setSelectionColor,
   setSelectionGroup,
+  setSelectionMixPercent,
 } from '../../app/selectionMeta.js'
+import {
+  buildMixComponents,
+  createPythonWeightedMixture,
+  downloadSelectedSpectra,
+  removePythonVirtualSpectrum,
+  syncPythonVirtualSpectra,
+} from '../../app/selectionSync.js'
+import {
+  isVirtualSpectrum,
+  nextMixSpectrumName,
+  pruneVirtualMixRecipes,
+  pruneVirtualSpectra,
+  serializeMixRecipe,
+} from '../../app/virtualSpectra.js'
 import { resultNameStyle } from '../../app/spectraStyling.js'
 import {
   addPythonSelection,
@@ -25,6 +41,28 @@ import { usePyodide } from '../../context/usePyodide.js'
 import './Query.css'
 
 const COLOR_COMMIT_MS = 250
+const MIX_COMMIT_MS = 250
+
+const SEARCH_TOOLTIP =
+  'Search by name or absorption. Use | to OR several queries (results interleaved by rank). Exclude features using ! and add ^ to search for peaks. Ranges can be specified as X-Y.'
+const CONFIDENCE_TOOLTIP =
+  'Default uncertainty (± nm) when matching absorption features in a search.'
+const DOWNLOAD_TOOLTIP =
+  'Download selected spectra as .txt files. Caution: this downloads compressed (denoised) spectra, so will not exactly match those in the original library.'
+const MIX_TOOLTIP =
+  'Create a virtual mixture from selected spectra using their Mix % weights (at least two with weight > 0).'
+
+function parseMixPercent(value) {
+  const trimmed = String(value).trim()
+  if (!trimmed) return null
+  const parsed = Number(trimmed)
+  if (!Number.isFinite(parsed) || parsed < 0 || parsed > 100) return null
+  return parsed
+}
+
+function formatMixPercent(value) {
+  return value == null ? '' : String(value)
+}
 
 function parsePositiveNumber(value, fallback) {
   const parsed = Number(value)
@@ -71,6 +109,7 @@ function QueryResultItem({
 function SelectedSpectrumItem({
   canonical,
   color,
+  mixPercent,
   selectionMeta,
   hoveredSpectrum,
   onHover,
@@ -78,16 +117,19 @@ function SelectedSpectrumItem({
   onGroupChange,
   onColorChange,
   onColorCommit,
+  onMixPercentChange,
+  onMixPercentCommit,
 }) {
   const parsed = useMemo(() => parseSpectrumName(canonical), [canonical])
   const group = selectionMeta?.[canonical]?.group ?? parsed.group ?? ''
   const displayLabel = formatSpectrumDisplayName(parsed, group)
   const longPress = useLongPress(() => onDeselect(canonical))
+  const virtual = isVirtualSpectrum(canonical)
 
   return (
     <li
       {...longPress}
-      className={`query-selected-item${hoveredSpectrum === canonical ? ' query-item--hovered' : ''}`}
+      className={`query-selected-item${hoveredSpectrum === canonical ? ' query-item--hovered' : ''}${virtual ? ' query-selected-item--virtual' : ''}`}
       onDoubleClick={() => onDeselect(canonical)}
       onMouseEnter={() => onHover(canonical)}
       onMouseLeave={() => onHover(null)}
@@ -104,24 +146,42 @@ function SelectedSpectrumItem({
         onBlur={(event) => onColorCommit(canonical, event.target.value)}
         onPointerUp={(event) => onColorCommit(canonical, event.target.value)}
       />
-      <div className="query-selected-label" style={{ color }}>
-        {parsed.archive ? (
-          <span className="query-selected-archive">({parsed.archive})</span>
-        ) : null}
-        <span className="query-selected-group">
-          [
+      <div className="query-selected-body">
+        <div className="query-selected-label" style={{ color }}>
+          {parsed.archive ? (
+            <span className="query-selected-archive">({parsed.archive})</span>
+          ) : null}
+          <span className="query-selected-group">
+            [
+            <input
+              type="text"
+              className="query-selected-group-input"
+              value={group}
+              aria-label={`Group for ${parsed.sampleId}`}
+              onClick={(event) => event.stopPropagation()}
+              onDoubleClick={(event) => event.stopPropagation()}
+              onChange={(event) => onGroupChange(canonical, event.target.value, parsed.group)}
+            />
+            ]
+          </span>
+          <span className="query-selected-sample">{parsed.sampleId}</span>
+        </div>
+        <label className="query-selected-mix" onClick={(event) => event.stopPropagation()}>
+          <span className="query-selected-mix-label">Mix</span>
           <input
             type="text"
-            className="query-selected-group-input"
-            value={group}
-            aria-label={`Group for ${parsed.sampleId}`}
+            className="query-selected-mix-input"
+            inputMode="decimal"
+            value={mixPercent}
+            aria-label={`Mix weight percent for ${parsed.sampleId}`}
+            placeholder="0"
             onClick={(event) => event.stopPropagation()}
             onDoubleClick={(event) => event.stopPropagation()}
-            onChange={(event) => onGroupChange(canonical, event.target.value, parsed.group)}
+            onChange={(event) => onMixPercentChange(canonical, event.target.value)}
+            onBlur={(event) => onMixPercentCommit(canonical, event.target.value)}
           />
-          ]
-        </span>
-        <span className="query-selected-sample">{parsed.sampleId}</span>
+          <span className="query-selected-mix-suffix">%</span>
+        </label>
       </div>
     </li>
   )
@@ -137,10 +197,14 @@ export default function Query() {
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
   const [colorDrafts, setColorDrafts] = useState({})
+  const [mixDrafts, setMixDrafts] = useState({})
   const restoredSearchRef = useRef(false)
   const colorTimersRef = useRef({})
+  const mixTimersRef = useRef({})
   const selection = appState.selection
   const selectionMeta = appState.selectionMeta ?? {}
+  const virtualSpectra = appState.virtualSpectra ?? {}
+  const virtualMixRecipes = appState.virtualMixRecipes ?? {}
   const selectionMetaRef = useRef(selectionMeta)
   selectionMetaRef.current = selectionMeta
 
@@ -158,16 +222,39 @@ export default function Query() {
 
   useEffect(() => {
     setColorDrafts({})
+    setMixDrafts({})
   }, [selection])
 
   useEffect(() => () => {
     Object.values(colorTimersRef.current).forEach(clearTimeout)
+    Object.values(mixTimersRef.current).forEach(clearTimeout)
   }, [])
 
   const effectiveColor = useCallback(
     (canonical) => colorDrafts[canonical] ?? selectedColorFor(canonical, selectionMeta),
     [colorDrafts, selectionMeta],
   )
+
+  const effectiveMixPercent = useCallback(
+    (canonical) => {
+      if (Object.prototype.hasOwnProperty.call(mixDrafts, canonical)) {
+        return mixDrafts[canonical]
+      }
+      return formatMixPercent(mixPercentFor(canonical, selectionMeta))
+    },
+    [mixDrafts, selectionMeta],
+  )
+
+  const resolvedMixPercents = useCallback(() => {
+    const percents = {}
+    for (const name of selection) {
+      const parsed = parseMixPercent(effectiveMixPercent(name))
+      if (parsed != null) {
+        percents[name] = parsed
+      }
+    }
+    return percents
+  }, [effectiveMixPercent, selection])
 
   useEffect(() => {
     if (status !== 'ready' || !pyodide || restoredSearchRef.current) return
@@ -316,10 +403,21 @@ export default function Query() {
     if (status !== 'ready' || busy || !pyodide) return
 
     try {
-      const next = await runQueued(() => removePythonSelection(pyodide, name))
+      const next = await runQueued(async () => {
+        const nextSelection = await removePythonSelection(pyodide, name)
+        if (isVirtualSpectrum(name)) {
+          await removePythonVirtualSpectrum(pyodide, name)
+        }
+        const nextVirtual = pruneVirtualSpectra(virtualSpectra, nextSelection)
+        const nextRecipes = pruneVirtualMixRecipes(virtualMixRecipes, nextSelection)
+        await syncPythonVirtualSpectra(pyodide, nextVirtual)
+        return { nextSelection, nextVirtual, nextRecipes }
+      })
       setQueryState({
-        selection: next,
-        selectionMeta: pruneSelectionMeta(selectionMeta, next),
+        selection: next.nextSelection,
+        selectionMeta: pruneSelectionMeta(selectionMeta, next.nextSelection),
+        virtualSpectra: next.nextVirtual,
+        virtualMixRecipes: next.nextRecipes,
       })
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
@@ -360,6 +458,96 @@ export default function Query() {
     commitSelectionColor(canonical, color)
   }
 
+  function commitSelectionMixPercent(canonical, value) {
+    setQueryState({
+      selectionMeta: setSelectionMixPercent(selectionMetaRef.current, canonical, parseMixPercent(value)),
+    })
+    setMixDrafts((prev) => {
+      if (prev[canonical] === undefined) return prev
+      const next = { ...prev }
+      delete next[canonical]
+      return next
+    })
+  }
+
+  function handleMixPercentChange(canonical, value) {
+    setMixDrafts((prev) => ({ ...prev, [canonical]: value }))
+    const timers = mixTimersRef.current
+    clearTimeout(timers[canonical])
+    timers[canonical] = setTimeout(() => {
+      commitSelectionMixPercent(canonical, value)
+      delete timers[canonical]
+    }, MIX_COMMIT_MS)
+  }
+
+  function handleMixPercentCommit(canonical, value) {
+    clearTimeout(mixTimersRef.current[canonical])
+    delete mixTimersRef.current[canonical]
+    commitSelectionMixPercent(canonical, value)
+  }
+
+  async function handleDownloadSelected() {
+    if (status !== 'ready' || busy || !pyodide || selection.length === 0) return
+
+    setBusy(true)
+    setError('')
+
+    try {
+      await runQueued(() => downloadSelectedSpectra(pyodide, selection, selectionMeta))
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function handleMixSelected() {
+    if (status !== 'ready' || busy || !pyodide || selection.length === 0) return
+
+    const mixPercents = resolvedMixPercents()
+    const components = buildMixComponents(selection, selectionMeta, mixPercents)
+    if (components.length < 2) {
+      setError('Set mix weights (> 0) on at least two selected spectra before mixing.')
+      return
+    }
+
+    const mixName = nextMixSpectrumName(selection, virtualSpectra)
+    setBusy(true)
+    setError('')
+
+    try {
+      const result = await runQueued(async () => {
+        const mixed = await createPythonWeightedMixture(pyodide, components, mixName)
+        const nextVirtual = {
+          ...virtualSpectra,
+          [mixName]: {
+            wavelengths: mixed.wavelengths,
+            reflectance: mixed.reflectance,
+          },
+        }
+        const nextRecipes = {
+          ...virtualMixRecipes,
+          [mixName]: serializeMixRecipe(components),
+        }
+        await syncPythonVirtualSpectra(pyodide, nextVirtual)
+        const nextSelection = await addPythonSelection(pyodide, mixName)
+        return { nextVirtual, nextSelection, nextRecipes }
+      })
+
+      setQueryState({
+        selection: result.nextSelection,
+        virtualSpectra: result.nextVirtual,
+        virtualMixRecipes: result.nextRecipes,
+      })
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const mixComponentCount = buildMixComponents(selection, selectionMeta, resolvedMixPercents()).length
+
   const rangeLabel =
     total > 0
       ? `${activeSlice[0] + 1}–${activeSlice[1]} of ${total}`
@@ -369,13 +557,11 @@ export default function Query() {
 
   return (
     <div className="widget widget-query">
-      <p className="query-help">
-        Search by name or absorption. Exclude features using ! and add ^ to search for peaks.
-        Ranges can be specified as X-Y. &lsquo;Confidence&rsquo; sets default uncertainty.
-      </p>
-
       <form className="query-form" onSubmit={handleSubmit}>
-        <label className="query-field query-field--search">
+        <label
+          className="query-field query-field--search"
+          data-tooltip={SEARCH_TOOLTIP}
+        >
           <span className="query-label">Search</span>
           <input
             className="query-input"
@@ -388,7 +574,7 @@ export default function Query() {
         </label>
 
         <div className="query-options">
-          <label className="query-field">
+          <label className="query-field" data-tooltip={CONFIDENCE_TOOLTIP}>
             <span className="query-label">Confidence (± nm)</span>
             <input
               className="query-input query-input--small"
@@ -426,13 +612,37 @@ export default function Query() {
 
       <div className="query-panels">
         <div
-          className={`query-results-panel query-selected-panel${selection.length === 0 ? ' query-selected-panel--empty' : ''}${selection.length > 5 ? ' query-selected-panel--capped' : ''}`}
+          className={`query-results-panel query-selected-panel${selection.length === 0 ? ' query-selected-panel--empty' : ''}`}
         >
           <div className="query-results-header">
-            <h3 className="query-results-title">Selected</h3>
-            <span className="query-results-range">
-              {selection.length === 0 ? 'None' : `${selection.length} selected`}
-            </span>
+            <div className="query-results-header-main">
+              <h3 className="query-results-title">Selected</h3>
+              <span className="query-results-range">
+                {selection.length === 0 ? 'None' : `${selection.length} selected`}
+              </span>
+            </div>
+            <div className="query-selected-actions">
+              <span data-tooltip={DOWNLOAD_TOOLTIP}>
+                <button
+                  type="button"
+                  className="query-selected-action"
+                  onClick={handleDownloadSelected}
+                  disabled={busy || status !== 'ready' || selection.length === 0}
+                >
+                  Download
+                </button>
+              </span>
+              <span data-tooltip={MIX_TOOLTIP}>
+                <button
+                  type="button"
+                  className="query-selected-action"
+                  onClick={handleMixSelected}
+                  disabled={busy || status !== 'ready' || mixComponentCount < 2}
+                >
+                  Mix
+                </button>
+              </span>
+            </div>
           </div>
 
           <ul className="query-results" role="list">
@@ -444,6 +654,7 @@ export default function Query() {
                   key={name}
                   canonical={name}
                   color={effectiveColor(name)}
+                  mixPercent={effectiveMixPercent(name)}
                   selectionMeta={selectionMeta}
                   hoveredSpectrum={hoveredSpectrum}
                   onHover={setHoveredSpectrum}
@@ -451,6 +662,8 @@ export default function Query() {
                   onGroupChange={handleGroupChange}
                   onColorChange={handleColorChange}
                   onColorCommit={handleColorCommit}
+                  onMixPercentChange={handleMixPercentChange}
+                  onMixPercentCommit={handleMixPercentCommit}
                 />
               ))
             )}

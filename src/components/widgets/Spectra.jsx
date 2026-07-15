@@ -3,7 +3,6 @@ import {
   applyHullCorrections,
   applyHullToSpectra,
   computePlotExtents,
-  defaultPlotDomains,
   exportSpectraPlotData,
   filterPlotSpectra,
   filterSpectraBySpan,
@@ -19,6 +18,9 @@ import { useAppState } from '../../context/useAppState.js'
 import { usePyodide } from '../../context/usePyodide.js'
 import SpectraPlot, { dataWavelengthExtent, defaultDomainsFromData } from './SpectraPlot.jsx'
 import './Spectra.css'
+
+const HULL_TOOLTIP =
+  'Continuum removal (hull correction) on the plotted wavelength range. Uses an upper hull below 6000 nm and a lower hull above. Y axis switches to hull-corrected reflectance.'
 
 function visibleRawSpectra(rawPlotData, showSelected, showQuery) {
   return filterPlotSpectra(rawPlotData.spectra, { showSelected, showQuery })
@@ -214,19 +216,6 @@ export default function Spectra() {
     return computePlotExtents(displayPlotData.spectra, xDomain, yDomain, { hullYAxis: applyHull })
   }, [applyHull, displayPlotData, xDomain, yDomain])
 
-  const resetToAllDomains = useCallback(
-    (spectra) => {
-      if (!spectra.length) return null
-
-      if (applyHull && hullRange) {
-        return defaultPlotDomains(spectra, hullRange, { hullYAxis: true })
-      }
-
-      return defaultDomainsFromData(spectra)
-    },
-    [applyHull, hullRange],
-  )
-
   const handleBrushZoom = useCallback(({ xDomain: nextX, yDomain: nextY }) => {
     setXDomain(nextX)
     setYDomain(nextY)
@@ -239,15 +228,6 @@ export default function Spectra() {
     setYDomain(nextY)
     setActiveBand('ALL')
   }, [deactivateHull])
-
-  const handleResetZoom = useCallback(() => {
-    deactivateHull()
-    if (!visibleSpectra.length) return
-    const defaults = defaultDomainsFromData(visibleSpectra)
-    setXDomain(defaults.xDomain)
-    setYDomain(defaults.yDomain)
-    setActiveBand('ALL')
-  }, [deactivateHull, visibleSpectra])
 
   const handleBandSelect = useCallback(
     (bandKey) => {
@@ -312,7 +292,7 @@ export default function Spectra() {
         onHoverSpectrum={setHoveredSpectrum}
         onBrushZoom={handleBrushZoom}
         onViewPan={handleViewPan}
-        onResetZoom={handleResetZoom}
+        onResetZoom={() => handleBandSelect('ALL')}
         applyHull={applyHull}
         selectedColors={deferredSelectedColors}
       />
@@ -343,22 +323,16 @@ export default function Spectra() {
             />
             Query
           </label>
-          <button
-            type="button"
-            className={`spectra-band-button${applyHull ? ' spectra-band-button--active' : ''}`}
-            onClick={handleHullToggle}
-            disabled={status !== 'ready' || loading || !hasVisibleSpectra}
-          >
-            Hull
-          </button>
-          <button
-            type="button"
-            className="spectra-band-button"
-            onClick={handleResetZoom}
-            disabled={status !== 'ready' || plotBusy || !hasVisibleSpectra}
-          >
-            Reset zoom
-          </button>
+          <span data-tooltip={HULL_TOOLTIP}>
+            <button
+              type="button"
+              className={`spectra-band-button${applyHull ? ' spectra-band-button--active' : ''}`}
+              onClick={handleHullToggle}
+              disabled={status !== 'ready' || loading || !hasVisibleSpectra}
+            >
+              Hull
+            </button>
+          </span>
         </div>
 
         <div className="spectra-band-nav">

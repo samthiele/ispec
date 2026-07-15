@@ -1,0 +1,23 @@
+[data-tooltip] > :disabled {
+  pointer-events: none;
+}
+
+.hover-tooltip-layer {
+  position: fixed;
+  left: 0;
+  top: 0;
+  z-index: 10000;
+  width: max-content;
+  max-width: min(22rem, 90vw);
+  padding: 0.45rem 0.55rem;
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  background: var(--panel-header-bg);
+  color: var(--text-color);
+  font-size: 0.78rem;
+  line-height: 1.45;
+  font-weight: 400;
+  white-space: normal;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.35);
+  pointer-events: none;
+}

@@ -109,10 +109,14 @@ export function applyHullCorrections(spectra, hullSpectra) {
   const hullByName = new Map(hullSpectra.map((spectrum) => [spectrum.name, spectrum]))
   return spectra
     .filter((spectrum) => hullByName.has(spectrum.name))
-    .map((spectrum) => ({
-      ...spectrum,
-      reflectance: hullByName.get(spectrum.name).reflectance,
-    }))
+    .map((spectrum) => {
+      const hull = hullByName.get(spectrum.name)
+      return {
+        ...spectrum,
+        wavelengths: hull.wavelengths ?? spectrum.wavelengths,
+        reflectance: hull.reflectance,
+      }
+    })
 }
 
 export function defaultPlotDomains(spectra, xDomain = null, { hullYAxis = false } = {}) {

@@ -18,6 +18,8 @@ const margin = { top: 12, right: 12, bottom: 42, left: 52 }
 const HOVER_DISTANCE_PX = 10
 const DOUBLE_CLICK_MS = 350
 const CURSOR_LINE_COLOR = '#9aa0a6'
+/** Break polylines when wavelength sampling has a gap wider than this (nm). */
+const MAX_WAVELENGTH_GAP_NM = 50
 
 function formatWavelength(nm) {
   if (!Number.isFinite(nm)) return ''
@@ -36,16 +38,31 @@ function chartPoint(event) {
   }
 }
 
-function buildSeriesPoints(wavelengths, reflectance) {
-  const points = []
+function buildSeriesSegments(wavelengths, reflectance) {
+  const segments = []
+  let current = []
   const n = Math.min(wavelengths.length, reflectance.length)
+
   for (let i = 0; i < n; i += 1) {
     const x = wavelengths[i]
     const y = reflectance[i]
     if (!Number.isFinite(x) || !Number.isFinite(y)) continue
-    points.push({ x, y })
+
+    if (current.length > 0) {
+      const gap = x - current[current.length - 1].x
+      if (gap > MAX_WAVELENGTH_GAP_NM) {
+        segments.push(current)
+        current = []
+      }
+    }
+    current.push({ x, y })
   }
-  return points
+
+  if (current.length > 0) {
+    segments.push(current)
+  }
+
+  return segments
 }
 
 function CrosshairLabel({ x, y, width, text }) {
@@ -322,11 +339,11 @@ function SpectraPlotInner({
         <Group clipPath={`url(#${clipId})`}>
           {orderedSpectra.map((spectrum) => {
             const style = spectrumStrokeStyle(spectrum, stylingContext, hoveredSpectrum)
-            const points = buildSeriesPoints(spectrum.wavelengths, spectrum.reflectance)
+            const segments = buildSeriesSegments(spectrum.wavelengths, spectrum.reflectance)
 
-            return (
+            return segments.map((points, segmentIndex) => (
               <LinePath
-                key={spectrum.name}
+                key={`${spectrum.name}-${segmentIndex}`}
                 data={points}
                 x={(point) => xScale(point.x) ?? 0}
                 y={(point) => yScale(point.y) ?? 0}
@@ -336,7 +353,7 @@ function SpectraPlotInner({
                 fill="none"
                 pointerEvents="none"
               />
-            )
+            ))
           })}
         </Group>
 

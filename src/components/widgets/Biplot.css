@@ -1,0 +1,196 @@
+.widget-biplot {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  height: 100%;
+  min-height: 0;
+  padding: 0.5rem;
+}
+
+.biplot-status {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 0.78rem;
+}
+
+.biplot-status--error {
+  color: var(--error);
+}
+
+.biplot-plot-host {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  background: #121316;
+  overflow: hidden;
+}
+
+.biplot-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  padding: 1rem 1.25rem 1rem 1rem;
+  color: var(--text-muted);
+  font-size: 0.82rem;
+  text-align: center;
+}
+
+.biplot-svg {
+  display: block;
+  user-select: none;
+}
+
+.biplot-settings-toggle {
+  position: absolute;
+  top: 0.45rem;
+  right: 0.45rem;
+  z-index: 3;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.85rem;
+  height: 1.85rem;
+  padding: 0;
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  background: rgba(34, 35, 39, 0.92);
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.biplot-settings-toggle:hover {
+  color: var(--text-color);
+  background: #3c4043;
+}
+
+.biplot-settings-toggle--active {
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--border-color));
+}
+
+.biplot-settings-icon {
+  width: 1rem;
+  height: 1rem;
+}
+
+.biplot-settings-panel {
+  position: absolute;
+  top: 0.45rem;
+  right: 2.5rem;
+  z-index: 2;
+  width: min(32rem, calc(100% - 3rem));
+  max-height: calc(100% - 0.9rem);
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  padding: 0.55rem;
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  background: rgba(18, 19, 22, 0.96);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+}
+
+.biplot-settings-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 0.45rem 0.6rem;
+}
+
+.biplot-settings-span {
+  grid-column: 1 / -1;
+}
+
+.biplot-input {
+  width: 100%;
+  padding: 0.3rem 0.45rem;
+  border: 1px solid var(--border-color);
+  border-radius: 3px;
+  background: var(--input-bg);
+  color: var(--text-color);
+  font: inherit;
+  font-size: 0.78rem;
+}
+
+.biplot-input:focus {
+  outline: 1px solid var(--accent);
+  border-color: var(--accent);
+}
+
+.biplot-input--compact {
+  font-size: 0.72rem;
+  padding: 0.2rem 0.35rem;
+}
+
+.biplot-field,
+.biplot-settings-section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  min-width: 0;
+}
+
+.biplot-field-label {
+  color: var(--text-muted);
+  font-size: 0.72rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.biplot-colorbar {
+  height: 0.55rem;
+  border-radius: 2px;
+  border: 1px solid var(--border-color);
+}
+
+.biplot-colorbar-labels {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.25rem;
+  color: var(--text-muted);
+  font-size: 0.65rem;
+}
+
+.biplot-colorbar-labels span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.biplot-limit-row {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.biplot-limit-row .biplot-input--compact {
+  flex: 1;
+  min-width: 0;
+}
+
+.biplot-limit-sep {
+  color: var(--text-muted);
+  font-size: 0.68rem;
+}
+
+.biplot-update {
+  font: inherit;
+  font-size: 0.78rem;
+  padding: 0.35rem 0.75rem;
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  background: var(--input-bg);
+  color: var(--text-color);
+}
+
+.biplot-update:hover:not(:disabled) {
+  background: #3c4043;
+}
+
+.biplot-update:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}

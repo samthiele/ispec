@@ -1,3 +1,5 @@
+import { DEFAULT_VIRTUAL_SELECTED_COLOR, isVirtualSpectrum } from './virtualSpectra.js'
+
 export const DEFAULT_SELECTED_COLOR = '#ffffff'
 
 const ARCHIVE_PREFIX_RE = /^\(([^)]+)\)\s+(.*)$/
@@ -68,7 +70,9 @@ export function selectionColorsDep(selection, selectionMeta) {
 
 export function selectedColorFor(canonical, selectionMeta) {
   const color = selectionMeta?.[canonical]?.color
-  return typeof color === 'string' ? color : DEFAULT_SELECTED_COLOR
+  if (typeof color === 'string') return color
+  if (isVirtualSpectrum(canonical)) return DEFAULT_VIRTUAL_SELECTED_COLOR
+  return DEFAULT_SELECTED_COLOR
 }
 
 export function normalizeSelectionMeta(raw, selection) {
@@ -86,6 +90,10 @@ export function normalizeSelectionMeta(raw, selection) {
     }
     if (typeof value.color === 'string' && /^#[0-9a-fA-F]{6}$/.test(value.color)) {
       entry.color = value.color.toLowerCase()
+    }
+    const mixPercent = Number(value.mixPercent)
+    if (Number.isFinite(mixPercent) && mixPercent >= 0 && mixPercent <= 100) {
+      entry.mixPercent = mixPercent
     }
     if (Object.keys(entry).length) {
       out[key] = entry
@@ -122,8 +130,11 @@ export function setSelectionColor(selectionMeta, canonical, color) {
   const meta = { ...selectionMeta }
   const entry = { ...(meta[canonical] ?? {}) }
   const normalized = String(color).toLowerCase()
+  const defaultColor = isVirtualSpectrum(canonical)
+    ? DEFAULT_VIRTUAL_SELECTED_COLOR
+    : DEFAULT_SELECTED_COLOR
 
-  if (normalized === DEFAULT_SELECTED_COLOR) {
+  if (normalized === defaultColor) {
     delete entry.color
   } else {
     entry.color = normalized
@@ -138,12 +149,43 @@ export function setSelectionColor(selectionMeta, canonical, color) {
   return meta
 }
 
+export function setSelectionMixPercent(selectionMeta, canonical, mixPercent) {
+  const meta = { ...selectionMeta }
+  const entry = { ...(meta[canonical] ?? {}) }
+
+  if (mixPercent == null || mixPercent === '') {
+    delete entry.mixPercent
+  } else {
+    const parsed = Number(mixPercent)
+    if (!Number.isFinite(parsed) || parsed < 0 || parsed > 100) {
+      delete entry.mixPercent
+    } else {
+      entry.mixPercent = parsed
+    }
+  }
+
+  if (Object.keys(entry).length === 0) {
+    delete meta[canonical]
+  } else {
+    meta[canonical] = entry
+  }
+
+  return meta
+}
+
+export function mixPercentFor(canonical, selectionMeta) {
+  const value = selectionMeta?.[canonical]?.mixPercent
+  return Number.isFinite(value) ? value : null
+}
+
 export function selectedColorsMap(selection, selectionMeta) {
   const colors = {}
   for (const name of selection) {
     const color = selectionMeta?.[name]?.color
     if (typeof color === 'string') {
       colors[name] = color
+    } else if (isVirtualSpectrum(name)) {
+      colors[name] = DEFAULT_VIRTUAL_SELECTED_COLOR
     }
   }
   return colors

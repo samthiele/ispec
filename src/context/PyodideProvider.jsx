@@ -6,6 +6,7 @@ import {
   removePythonLibrary,
   syncPythonLibraries,
 } from '../app/librarySync.js'
+import { rebuildVirtualSpectraFromRecipes } from '../app/selectionSync.js'
 import { applyPythonQueryState } from '../app/querySync.js'
 import { useAppState } from './useAppState.js'
 import { initPyodide } from '../python/initPyodide.js'
@@ -26,7 +27,7 @@ function formatResult(value) {
 }
 
 export function PyodideProvider({ children }) {
-  const { appState } = useAppState()
+  const { appState, setQueryState } = useAppState()
   const [pyodide, setPyodide] = useState(null)
   const [status, setStatus] = useState('loading')
   const [loadingMessage, setLoadingMessage] = useState('Loading Python runtime…')
@@ -99,6 +100,12 @@ export function PyodideProvider({ children }) {
           selection: initial.selection ?? [],
         })
 
+        const rebuilt = await rebuildVirtualSpectraFromRecipes(
+          instance,
+          initial.virtualMixRecipes ?? {},
+        )
+        setQueryState({ virtualSpectra: rebuilt })
+
         if (cancelled) return
 
         setStatus('ready')
@@ -118,7 +125,7 @@ export function PyodideProvider({ children }) {
     return () => {
       cancelled = true
     }
-  }, [syncLibrariesImpl])
+  }, [setQueryState, syncLibrariesImpl])
 
   const execute = useCallback(
     (code, { source = 'console', echo = true } = {}) => {

@@ -84,6 +84,10 @@
   gap: 0.65rem 1rem;
 }
 
+.spectra-controls [data-tooltip] {
+  display: inline-flex;
+}
+
 .spectra-control {
   display: inline-flex;
   align-items: center;

@@ -1,8 +1,9 @@
 import { DEFAULT_LIBRARY_ID } from './libraries.js'
 import { DEFAULT_CONFIDENCE, DEFAULT_PAGE_SIZE } from './querySync.js'
 import { normalizeSelectionMeta } from './selectionMeta.js'
+import { normalizeVirtualMixRecipes } from './virtualSpectra.js'
 
-export const APP_STATE_VERSION = 2
+export const APP_STATE_VERSION = 4
 
 export const LAYOUT_PANE_DEFAULTS = {
   tri: ['query', 'spectra', 'llm'],
@@ -39,6 +40,8 @@ export function createDefaultAppState(viewMode = defaultViewMode()) {
     pageSize: DEFAULT_PAGE_SIZE,
     selection: [],
     selectionMeta: {},
+    virtualSpectra: {},
+    virtualMixRecipes: {},
     viewMode,
     panes: panesForViewMode(viewMode),
   }
@@ -60,6 +63,8 @@ export function normalizeAppState(raw) {
     pageSize: Number.isFinite(Number(raw?.pageSize)) ? Number(raw.pageSize) : base.pageSize,
     selection,
     selectionMeta: normalizeSelectionMeta(raw?.selectionMeta, selection),
+    virtualMixRecipes: normalizeVirtualMixRecipes(raw?.virtualMixRecipes, selection),
+    virtualSpectra: {},
     viewMode,
     panes: panesForViewMode(viewMode, Array.isArray(raw?.panes) ? raw.panes : base.panes),
   }
@@ -75,6 +80,7 @@ export function toShareableState(appState) {
     pageSize: appState.pageSize,
     selection: appState.selection,
     selectionMeta: appState.selectionMeta,
+    virtualMixRecipes: appState.virtualMixRecipes ?? {},
     viewMode: appState.viewMode,
     panes: appState.panes.map(({ type, state }) => ({ type, state })),
   }

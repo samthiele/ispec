@@ -2,12 +2,12 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { clearGeminiApiKey, getGeminiApiKey, setGeminiApiKey } from '../../app/geminiApiKey.js'
 import { createGeminiChat, sendGeminiMessage } from '../../app/geminiClient.js'
 import { GEMINI_MODELS, geminiModelLabel, getGeminiModel, setGeminiModel } from '../../app/geminiModels.js'
-import { formatSpectralFeaturesSummary } from '../../app/llmFeatures.js'
+import { formatSpectralFeaturesSummary, NO_SELECTION_SUMMARY } from '../../app/llmFeatures.js'
 import {
   exportSelectionSpectralFeatures,
   loadSkillDocument,
 } from '../../app/llmSync.js'
-import { buildLookupMap, formatSpectrumDisplayName, parseSpectrumName } from '../../app/selectionMeta.js'
+import { buildLookupMap } from '../../app/selectionMeta.js'
 import { useAppState } from '../../context/useAppState.js'
 import { usePyodide } from '../../context/usePyodide.js'
 import './LLM.css'
@@ -22,12 +22,6 @@ function buildSystemInstruction(skillText, spectralSummary) {
 ${spectralSummary}
 
 Interpret user questions in light of this summary. Cite wavelengths (nm) from the summary when reasoning about minerals or mixtures.`
-}
-
-function displayLabelForSpectrum(name, selectionMeta) {
-  const parsed = parseSpectrumName(name)
-  const entry = selectionMeta?.[name]
-  return formatSpectrumDisplayName(parsed, entry?.group)
 }
 
 function toGeminiHistory(messages) {
@@ -99,7 +93,7 @@ export default function LLM() {
   const { status, pyodide, runQueued } = usePyodide()
   const [apiKey, setApiKeyState] = useState(() => getGeminiApiKey())
   const [model, setModelState] = useState(() => getGeminiModel())
-  const [showKeyModal, setShowKeyModal] = useState(() => !getGeminiApiKey())
+  const [showKeyModal, setShowKeyModal] = useState(false)
   const [keyDraft, setKeyDraft] = useState('')
   const [skillText, setSkillText] = useState('')
   const [skillError, setSkillError] = useState(null)
@@ -151,15 +145,9 @@ export default function LLM() {
     let cancelled = false
     runQueued(async () => {
       if (!appState.selection.length) {
-        const summary =
-          'No spectra are currently selected. Ask the user to select spectra in the Query widget first.'
         if (!cancelled) {
-          setSpectralSummary(summary)
+          setSpectralSummary(NO_SELECTION_SUMMARY)
           setFeatureError(null)
-          setMessages((prev) => [
-            ...prev.filter((message) => message.kind !== 'context'),
-            { role: 'context', kind: 'context', text: summary },
-          ])
           console.info('[iSpec LLM] spectral features — no selection')
         }
         return
@@ -177,14 +165,6 @@ export default function LLM() {
         if (cancelled) return
         setSpectralSummary(summary)
         setFeatureError(null)
-        setMessages((prev) => [
-          ...prev.filter((message) => message.kind !== 'context'),
-          {
-            role: 'context',
-            kind: 'context',
-            text: summary,
-          },
-        ])
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error)
         console.error('[iSpec LLM] spectral feature export failed', error)
@@ -234,7 +214,6 @@ export default function LLM() {
   const clearKey = useCallback(() => {
     clearGeminiApiKey()
     setApiKeyState('')
-    setShowKeyModal(true)
     setKeyDraft('')
     chatRef.current = null
   }, [])
@@ -247,7 +226,7 @@ export default function LLM() {
   }, [])
 
   const startNewChat = useCallback(() => {
-    setMessages((prev) => prev.filter((message) => message.kind === 'context'))
+    setMessages([])
     setChatError(null)
   }, [])
 
@@ -255,6 +234,7 @@ export default function LLM() {
     const text = input.trim()
     if (!text || busy) return
     if (!apiKey) {
+      setKeyDraft('')
       setShowKeyModal(true)
       return
     }
@@ -296,11 +276,7 @@ export default function LLM() {
     }
   }
 
-  const selectionLabels = appState.selection.map((name) =>
-    displayLabelForSpectrum(name, selectionMeta),
-  )
-
-  const isDisabled = status !== 'ready' || busy || !apiKey
+  const isDisabled = status !== 'ready' || busy
 
   return (
     <div className="widget widget-llm">
@@ -311,11 +287,6 @@ export default function LLM() {
               ? `${appState.selection.length} selected`
               : 'No selection'}
           </span>
-          {selectionLabels.length > 0 ? (
-            <span className="llm-toolbar-names" title={selectionLabels.join('\n')}>
-              {selectionLabels.join(' · ')}
-            </span>
-          ) : null}
         </div>
         <div className="llm-toolbar-actions">
           <label className="llm-model-picker">
@@ -358,36 +329,19 @@ export default function LLM() {
         {status === 'loading' ? (
           <div className="llm-line llm-line--system">Initialising Python…</div>
         ) : null}
-        {!apiKey ? (
+        {messages.length === 0 && status === 'ready' ? (
           <div className="llm-line llm-line--system">
-            Add your Gemini API key to start chatting about selected spectra.
-          </div>
-        ) : null}
-        {messages.length === 0 && apiKey && status === 'ready' ? (
-          <div className="llm-line llm-line--system">
-            Select spectra in Query, then ask questions such as &ldquo;Which minerals are likely in
-            my selection?&rdquo; or &ldquo;What combination of minerals and plants could give this
-            spectra?&rdquo;
+            Ask general hyperspectral questions, or select spectra in Query for sample-specific
+            interpretation (e.g. &ldquo;Which minerals are likely in my selection?&rdquo;). A Gemini
+            API key is requested when you send your first message.
           </div>
         ) : null}
         {messages.map((message, index) => (
-          <div
-            key={index}
-            className={`llm-line llm-line--${message.role}${message.kind === 'context' ? ' llm-line--context' : ''}`}
-          >
-            {message.kind === 'context' ? (
-              <>
-                <div className="llm-context-label">Selection feature summary</div>
-                <pre>{message.text}</pre>
-              </>
-            ) : (
-              <>
-                <div className="llm-role-label">
-                  {message.role === 'user' ? 'You' : geminiModelLabel(model)}
-                </div>
-                <pre>{message.text}</pre>
-              </>
-            )}
+          <div key={index} className={`llm-line llm-line--${message.role}`}>
+            <div className="llm-role-label">
+              {message.role === 'user' ? 'You' : geminiModelLabel(model)}
+            </div>
+            <pre>{message.text}</pre>
           </div>
         ))}
         {busy ? <div className="llm-line llm-line--system">Thinking…</div> : null}
@@ -401,10 +355,8 @@ export default function LLM() {
           onKeyDown={handleKeyDown}
           placeholder={
             isDisabled
-              ? status !== 'ready'
-                ? 'Waiting for Python…'
-                : 'Enter Gemini API key to chat'
-              : 'Ask about your selected spectra (Enter to send, Shift+Enter for newline)'
+              ? 'Waiting for Python…'
+              : 'Ask about spectra or general hyperspectral topics (Enter to send, Shift+Enter for newline)'
           }
           rows={2}
           disabled={isDisabled}
