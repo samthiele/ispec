@@ -1,4 +1,6 @@
 import { DEFAULT_LIBRARY_ID } from './libraries.js'
+import { compactBiplotPaneState, normalizeBiplotPaneState } from './biplotState.js'
+import { compactSpectraPaneState, normalizeSpectraPaneState } from './spectraState.js'
 import { DEFAULT_CONFIDENCE, DEFAULT_PAGE_SIZE } from './querySync.js'
 import { normalizeSelectionMeta } from './selectionMeta.js'
 import { normalizeVirtualMixRecipes } from './virtualSpectra.js'
@@ -11,6 +13,15 @@ export const LAYOUT_PANE_DEFAULTS = {
   quad: ['query', 'spectra', 'biplot', 'llm'],
 }
 
+export const VALID_PANE_TYPES = new Set([
+  'query',
+  'spectra',
+  'biplot',
+  'llm',
+  'console',
+  'library',
+])
+
 export function defaultViewMode() {
   if (typeof window === 'undefined') return 'tri'
   return window.innerHeight > window.innerWidth ? 'bi' : 'tri'
@@ -18,15 +29,39 @@ export function defaultViewMode() {
 
 export function panesForViewMode(viewMode, existingPanes = []) {
   const defaults = LAYOUT_PANE_DEFAULTS[viewMode] ?? LAYOUT_PANE_DEFAULTS.tri
-  return defaults.map((type, index) => {
+  return defaults.map((defaultType, index) => {
     const existing = existingPanes[index]
-    if (existing?.type === type) {
+    if (existing?.type && VALID_PANE_TYPES.has(existing.type)) {
       return { type: existing.type, state: existing.state ?? {} }
     }
-    if (existing) {
-      return { type, state: existing.state ?? {} }
+    return { type: defaultType, state: {} }
+  })
+}
+
+function normalizePaneEntry(pane) {
+  const type = pane?.type && VALID_PANE_TYPES.has(pane.type) ? pane.type : 'query'
+  let state = pane?.state ?? {}
+  if (type === 'biplot') {
+    state = normalizeBiplotPaneState(state)
+  } else if (type === 'spectra') {
+    state = normalizeSpectraPaneState(state)
+  }
+  return { type, state }
+}
+
+export function normalizePanes(rawPanes, viewMode) {
+  const defaults = LAYOUT_PANE_DEFAULTS[viewMode] ?? LAYOUT_PANE_DEFAULTS.tri
+
+  if (!Array.isArray(rawPanes) || rawPanes.length === 0) {
+    return panesForViewMode(viewMode).map((pane) => normalizePaneEntry(pane))
+  }
+
+  return defaults.map((defaultType, index) => {
+    const existing = rawPanes[index]
+    if (existing?.type && VALID_PANE_TYPES.has(existing.type)) {
+      return normalizePaneEntry(existing)
     }
-    return { type, state: {} }
+    return { type: defaultType, state: {} }
   })
 }
 
@@ -66,8 +101,18 @@ export function normalizeAppState(raw) {
     virtualMixRecipes: normalizeVirtualMixRecipes(raw?.virtualMixRecipes, selection),
     virtualSpectra: {},
     viewMode,
-    panes: panesForViewMode(viewMode, Array.isArray(raw?.panes) ? raw.panes : base.panes),
+    panes: normalizePanes(raw?.panes, viewMode),
   }
+}
+
+function shareablePaneState(type, state) {
+  if (type === 'biplot') {
+    return compactBiplotPaneState(state)
+  }
+  if (type === 'spectra') {
+    return compactSpectraPaneState(state)
+  }
+  return state ?? {}
 }
 
 export function toShareableState(appState) {
@@ -82,7 +127,10 @@ export function toShareableState(appState) {
     selectionMeta: appState.selectionMeta,
     virtualMixRecipes: appState.virtualMixRecipes ?? {},
     viewMode: appState.viewMode,
-    panes: appState.panes.map(({ type, state }) => ({ type, state })),
+    panes: appState.panes.map(({ type, state }) => ({
+      type,
+      state: shareablePaneState(type, state),
+    })),
   }
 }
 

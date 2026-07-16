@@ -5,6 +5,7 @@ import {
   setViewMode as setViewModeState,
   updatePane as updatePaneState,
 } from '../app/appState.js'
+import { EMPTY_BIPLOT_CROSSHAIR } from '../app/spectralExpression.js'
 import { AppStateContext } from './AppStateContext.js'
 
 export function AppStateProvider({ children, initialState, loadedFromHash = false }) {
@@ -30,6 +31,11 @@ export function AppStateProvider({ children, initialState, loadedFromHash = fals
   }, [])
 
   const [hoveredSpectrum, setHoveredSpectrum] = useState(null)
+  const [biplotCrosshair, setBiplotCrosshairState] = useState(EMPTY_BIPLOT_CROSSHAIR)
+
+  const setBiplotCrosshair = useCallback((next) => {
+    setBiplotCrosshairState(next ?? EMPTY_BIPLOT_CROSSHAIR)
+  }, [])
 
   const value = useMemo(
     () => ({
@@ -41,6 +47,8 @@ export function AppStateProvider({ children, initialState, loadedFromHash = fals
       setQueryState,
       hoveredSpectrum,
       setHoveredSpectrum,
+      biplotCrosshair,
+      setBiplotCrosshair,
       hydratedFromHash,
     }),
     [
@@ -50,6 +58,8 @@ export function AppStateProvider({ children, initialState, loadedFromHash = fals
       setLibraries,
       setQueryState,
       hoveredSpectrum,
+      biplotCrosshair,
+      setBiplotCrosshair,
       hydratedFromHash,
     ],
   )

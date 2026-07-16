@@ -14,6 +14,13 @@ import {
   selectionGroupDep,
 } from '../../app/selectionMeta.js'
 import { SPECTRAL_BANDS, SPECTRAL_BAND_KEYS } from '../../app/spectralBands.js'
+import { findBiplotPaneState, mergeBiplotPaneState } from '../../app/biplotState.js'
+import {
+  compactSpectraPaneState,
+  hasSavedSpectraView,
+  mergeSpectraPaneState,
+} from '../../app/spectraState.js'
+import { spectraCrosshairWavelengths } from '../../app/spectralExpression.js'
 import { useAppState } from '../../context/useAppState.js'
 import { usePyodide } from '../../context/usePyodide.js'
 import SpectraPlot, { dataWavelengthExtent, defaultDomainsFromData } from './SpectraPlot.jsx'
@@ -26,8 +33,10 @@ function visibleRawSpectra(rawPlotData, showSelected, showQuery) {
   return filterPlotSpectra(rawPlotData.spectra, { showSelected, showQuery })
 }
 
-export default function Spectra() {
-  const { appState, hoveredSpectrum, setHoveredSpectrum } = useAppState()
+export default function Spectra({ paneIndex, paneState }) {
+  const { appState, hoveredSpectrum, setHoveredSpectrum, biplotCrosshair, updatePane } =
+    useAppState()
+  const savedPane = useMemo(() => mergeSpectraPaneState(paneState), [paneState])
   const { status, pyodide, runQueued } = usePyodide()
   const [rawPlotData, setRawPlotData] = useState({ spectra: [] })
   const [hullPlotData, setHullPlotData] = useState(null)
@@ -35,12 +44,12 @@ export default function Spectra() {
   const [loading, setLoading] = useState(false)
   const [hullLoading, setHullLoading] = useState(false)
   const [error, setError] = useState('')
-  const [xDomain, setXDomain] = useState(null)
-  const [yDomain, setYDomain] = useState(null)
-  const [activeBand, setActiveBand] = useState('ALL')
+  const [xDomain, setXDomain] = useState(savedPane.xDomain)
+  const [yDomain, setYDomain] = useState(savedPane.yDomain)
+  const [activeBand, setActiveBand] = useState(savedPane.activeBand)
   const [showSelected, setShowSelected] = useState(true)
   const [showQuery, setShowQuery] = useState(true)
-  const [applyHull, setApplyHull] = useState(false)
+  const [applyHull, setApplyHull] = useState(savedPane.applyHull)
 
   const pageSlice = useMemo(() => {
     const [start, end] = appState.slice
@@ -65,6 +74,16 @@ export default function Spectra() {
 
   const deferredSelectedColors = useDeferredValue(selectedColors)
 
+  const biplotConfig = useMemo(
+    () => mergeBiplotPaneState(findBiplotPaneState(appState.panes)),
+    [appState.panes],
+  )
+
+  const positionGuideWavelengths = useMemo(
+    () => spectraCrosshairWavelengths(biplotCrosshair, biplotConfig.xExpr, biplotConfig.yExpr),
+    [biplotConfig.xExpr, biplotConfig.yExpr, biplotCrosshair],
+  )
+
   const visibleSpectra = useMemo(
     () => visibleRawSpectra(rawPlotData, showSelected, showQuery),
     [rawPlotData, showQuery, showSelected],
@@ -79,7 +98,37 @@ export default function Spectra() {
     setYDomain(null)
   }, [])
 
+  const writeSpectraPane = useCallback(
+    (next) => {
+      const compact = compactSpectraPaneState(next)
+      const current = compactSpectraPaneState(paneState)
+      if (JSON.stringify(compact) === JSON.stringify(current)) return
+      updatePane(paneIndex, { state: compact })
+    },
+    [paneIndex, paneState, updatePane],
+  )
+
+  const persistTimerRef = useRef(null)
+
+  const scheduleWriteSpectraPane = useCallback(
+    (next) => {
+      if (persistTimerRef.current) window.clearTimeout(persistTimerRef.current)
+      persistTimerRef.current = window.setTimeout(() => {
+        writeSpectraPane(next)
+      }, 300)
+    },
+    [writeSpectraPane],
+  )
+
+  useEffect(
+    () => () => {
+      if (persistTimerRef.current) window.clearTimeout(persistTimerRef.current)
+    },
+    [],
+  )
+
   const plotLoadRef = useRef({ contextKey: null, selectionKey: null })
+  const restoreViewRef = useRef(null)
 
   useEffect(() => {
     if (status !== 'ready' || !pyodide) return undefined
@@ -98,9 +147,12 @@ export default function Spectra() {
     setError('')
 
     if (!selectionOnly) {
-      setApplyHull(false)
-      setHullPlotData(null)
-      setHullRange(null)
+      restoreViewRef.current = mergeSpectraPaneState(paneState)
+      if (!hasSavedSpectraView(restoreViewRef.current)) {
+        setApplyHull(false)
+        setHullPlotData(null)
+        setHullRange(null)
+      }
     }
 
     runQueued(async () => {
@@ -111,10 +163,19 @@ export default function Spectra() {
         if (cancelled) return
         setRawPlotData(data)
         if (!selectionOnly) {
-          const defaults = defaultDomainsFromData(data.spectra)
-          setXDomain(defaults.xDomain)
-          setYDomain(defaults.yDomain)
-          setActiveBand('ALL')
+          const saved = restoreViewRef.current
+          if (saved && hasSavedSpectraView(saved)) {
+            const defaults = defaultDomainsFromData(data.spectra)
+            setXDomain(saved.xDomain ?? defaults.xDomain)
+            setYDomain(saved.yDomain ?? defaults.yDomain)
+            setActiveBand(saved.activeBand)
+            setApplyHull(saved.applyHull)
+          } else {
+            const defaults = defaultDomainsFromData(data.spectra)
+            setXDomain(defaults.xDomain)
+            setYDomain(defaults.yDomain)
+            setActiveBand('ALL')
+          }
         }
       })
       .catch((err) => {
@@ -216,18 +277,36 @@ export default function Spectra() {
     return computePlotExtents(displayPlotData.spectra, xDomain, yDomain, { hullYAxis: applyHull })
   }, [applyHull, displayPlotData, xDomain, yDomain])
 
-  const handleBrushZoom = useCallback(({ xDomain: nextX, yDomain: nextY }) => {
-    setXDomain(nextX)
-    setYDomain(nextY)
-    setActiveBand('ALL')
-  }, [])
+  const handleBrushZoom = useCallback(
+    ({ xDomain: nextX, yDomain: nextY }) => {
+      setXDomain(nextX)
+      setYDomain(nextY)
+      setActiveBand('ALL')
+      writeSpectraPane({
+        xDomain: nextX,
+        yDomain: nextY,
+        activeBand: 'ALL',
+        applyHull,
+      })
+    },
+    [applyHull, writeSpectraPane],
+  )
 
-  const handleViewPan = useCallback(({ xDomain: nextX, yDomain: nextY }) => {
-    deactivateHull()
-    setXDomain(nextX)
-    setYDomain(nextY)
-    setActiveBand('ALL')
-  }, [deactivateHull])
+  const handleViewPan = useCallback(
+    ({ xDomain: nextX, yDomain: nextY }) => {
+      deactivateHull()
+      setXDomain(nextX)
+      setYDomain(nextY)
+      setActiveBand('ALL')
+      scheduleWriteSpectraPane({
+        xDomain: nextX,
+        yDomain: nextY,
+        activeBand: 'ALL',
+        applyHull: false,
+      })
+    },
+    [deactivateHull, scheduleWriteSpectraPane],
+  )
 
   const handleBandSelect = useCallback(
     (bandKey) => {
@@ -240,6 +319,12 @@ export default function Spectra() {
         const defaults = defaultDomainsFromData(visibleSpectra)
         setXDomain(defaults.xDomain)
         setYDomain(defaults.yDomain)
+        writeSpectraPane({
+          xDomain: defaults.xDomain,
+          yDomain: defaults.yDomain,
+          activeBand: 'ALL',
+          applyHull: false,
+        })
         return
       }
 
@@ -254,25 +339,49 @@ export default function Spectra() {
         setXDomain([band.min, band.max])
         const fallback = defaultDomainsFromData(visibleSpectra)
         setYDomain(fallback.yDomain)
+        writeSpectraPane({
+          xDomain: [band.min, band.max],
+          yDomain: fallback.yDomain,
+          activeBand: bandKey,
+          applyHull: false,
+        })
         return
       }
 
       const { yDomain: nextY } = computePlotExtents(visibleSpectra, nextX, null)
       setXDomain(nextX)
       setYDomain(nextY)
+      writeSpectraPane({
+        xDomain: nextX,
+        yDomain: nextY,
+        activeBand: bandKey,
+        applyHull: false,
+      })
     },
-    [deactivateHull, visibleSpectra],
+    [deactivateHull, visibleSpectra, writeSpectraPane],
   )
 
   const handleHullToggle = useCallback(() => {
     if (applyHull) {
       deactivateHull()
+      writeSpectraPane({ xDomain, yDomain, activeBand, applyHull: false })
       return
     }
     if (!hasVisibleSpectra || loading || hullLoading) return
     setYDomain(null)
     setApplyHull(true)
-  }, [applyHull, deactivateHull, hasVisibleSpectra, hullLoading, loading])
+    writeSpectraPane({ xDomain, yDomain: null, activeBand, applyHull: true })
+  }, [
+    activeBand,
+    applyHull,
+    deactivateHull,
+    hasVisibleSpectra,
+    hullLoading,
+    loading,
+    writeSpectraPane,
+    xDomain,
+    yDomain,
+  ])
 
   const plotBusy = loading || (applyHull && hullLoading)
 
@@ -295,6 +404,7 @@ export default function Spectra() {
         onResetZoom={() => handleBandSelect('ALL')}
         applyHull={applyHull}
         selectedColors={deferredSelectedColors}
+        positionGuideWavelengths={positionGuideWavelengths}
       />
 
       <div className="spectra-toolbar">

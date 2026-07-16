@@ -12,6 +12,7 @@ import { useCoarsePointer } from '../../app/useCoarsePointer.js'
 import { useSpectraPlotGestures } from '../../app/useSpectraPlotGestures.js'
 import { spectrumStrokeStyle } from '../../app/spectraStyling.js'
 import { ALL_WAVELENGTH_MAX_NM } from '../../app/spectralBands.js'
+import { POSITION_GUIDE_LINE_COLOR } from '../../app/spectralExpression.js'
 import { Y_AXIS_PAD_FRACTION } from '../../app/spectraSync.js'
 
 const margin = { top: 12, right: 12, bottom: 42, left: 52 }
@@ -109,6 +110,7 @@ function SpectraPlotInner({
   onResetZoom,
   applyHull = false,
   selectedColors = {},
+  positionGuideWavelengths = [],
 }) {
   const clipId = useId().replace(/:/g, '')
   const plotGestureRef = useRef(null)
@@ -337,6 +339,21 @@ function SpectraPlotInner({
         </ClipPath>
 
         <Group clipPath={`url(#${clipId})`}>
+          {positionGuideWavelengths.map((wavelength) => (
+            <line
+              key={`guide-${wavelength}`}
+              x1={xScale(wavelength)}
+              x2={xScale(wavelength)}
+              y1={0}
+              y2={innerHeight}
+              stroke={POSITION_GUIDE_LINE_COLOR}
+              strokeWidth={1}
+              strokeDasharray="4 3"
+              opacity={0.75}
+              pointerEvents="none"
+            />
+          ))}
+
           {orderedSpectra.map((spectrum) => {
             const style = spectrumStrokeStyle(spectrum, stylingContext, hoveredSpectrum)
             const segments = buildSeriesSegments(spectrum.wavelengths, spectrum.reflectance)
@@ -477,6 +494,7 @@ export default function SpectraPlot({
   onResetZoom,
   applyHull = false,
   selectedColors = {},
+  positionGuideWavelengths = [],
 }) {
   const { spectra } = plotData
 
@@ -505,6 +523,7 @@ export default function SpectraPlot({
             onResetZoom={onResetZoom}
             applyHull={applyHull}
             selectedColors={selectedColors}
+            positionGuideWavelengths={positionGuideWavelengths}
           />
         )}
       </ParentSize>
