@@ -7,8 +7,8 @@ import {
   exportSelectionSpectralFeatures,
   loadSkillDocument,
 } from '../../app/llmSync.js'
-import { buildLookupMap } from '../../app/selectionMeta.js'
-import { useAppState } from '../../context/useAppState.js'
+import { buildLookupMap, selectionGroupDep } from '../../app/selectionMeta.js'
+import { useCoreAppState } from '../../context/useAppState.js'
 import { usePyodide } from '../../context/usePyodide.js'
 import './LLM.css'
 
@@ -89,7 +89,7 @@ function ApiKeyModal({ draft, onDraftChange, onSave, onClose }) {
 }
 
 export default function LLM() {
-  const { appState } = useAppState()
+  const { appState } = useCoreAppState()
   const { status, pyodide, runQueued } = usePyodide()
   const [apiKey, setApiKeyState] = useState(() => getGeminiApiKey())
   const [model, setModelState] = useState(() => getGeminiModel())
@@ -106,13 +106,14 @@ export default function LLM() {
   const chatRef = useRef(null)
   const transcriptRef = useRef(null)
   const messagesRef = useRef(messages)
-  const selectionMeta = appState.selectionMeta
+  const selectionMeta = appState.selectionMeta ?? {}
+  const groupDep = selectionGroupDep(appState.selection, selectionMeta)
 
   messagesRef.current = messages
 
   const lookupMap = useMemo(
     () => buildLookupMap(appState.selection, selectionMeta),
-    [appState.selection, selectionMeta],
+    [appState.selection, groupDep],
   )
 
   const selectionDep = useMemo(
@@ -177,7 +178,7 @@ export default function LLM() {
     return () => {
       cancelled = true
     }
-  }, [status, pyodide, runQueued, selectionDep, appState.selection, lookupMap])
+  }, [status, pyodide, runQueued, selectionDep])
 
   useEffect(() => {
     if (!apiKey || !skillText) {

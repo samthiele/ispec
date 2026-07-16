@@ -21,7 +21,8 @@ import {
   mergeSpectraPaneState,
 } from '../../app/spectraState.js'
 import { spectraCrosshairWavelengths } from '../../app/spectralExpression.js'
-import { useAppState } from '../../context/useAppState.js'
+import { useCoreAppState } from '../../context/useAppState.js'
+import { useInteraction } from '../../context/useInteraction.js'
 import { usePyodide } from '../../context/usePyodide.js'
 import SpectraPlot, { dataWavelengthExtent, defaultDomainsFromData } from './SpectraPlot.jsx'
 import './Spectra.css'
@@ -34,8 +35,8 @@ function visibleRawSpectra(rawPlotData, showSelected, showQuery) {
 }
 
 export default function Spectra({ paneIndex, paneState }) {
-  const { appState, hoveredSpectrum, setHoveredSpectrum, biplotCrosshair, updatePane } =
-    useAppState()
+  const { appState, updatePane } = useCoreAppState()
+  const { hoveredSpectrum, setHoveredSpectrum, biplotCrosshair } = useInteraction()
   const savedPane = useMemo(() => mergeSpectraPaneState(paneState), [paneState])
   const { status, pyodide, runQueued } = usePyodide()
   const [rawPlotData, setRawPlotData] = useState({ spectra: [] })

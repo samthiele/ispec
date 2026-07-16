@@ -66,6 +66,14 @@ export function isPositionAttribute(expr) {
   }
 }
 
+export function crosshairEqual(left, right) {
+  return (
+    left.active === right.active
+    && left.x === right.x
+    && left.y === right.y
+  )
+}
+
 export function biplotCrosshairFromPoint(point, xExpr, yExpr) {
   if (!point) {
     return { x: null, y: null }

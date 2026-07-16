@@ -186,10 +186,14 @@ function SpectraPlotInner({
   })
 
   const [cursor, setCursor] = useState(null)
+  const lastHoverRef = useRef(null)
 
   const handlePointerLeave = useCallback(() => {
     setCursor(null)
-    onHoverSpectrum(null)
+    if (lastHoverRef.current !== null) {
+      lastHoverRef.current = null
+      onHoverSpectrum(null)
+    }
   }, [onHoverSpectrum])
 
   const handlePointerMove = useCallback(
@@ -225,10 +229,10 @@ function SpectraPlotInner({
         }
       }
 
-      if (nearestDistance <= HOVER_DISTANCE_PX) {
-        onHoverSpectrum(nearestName)
-      } else {
-        onHoverSpectrum(null)
+      const nextHover = nearestDistance <= HOVER_DISTANCE_PX ? nearestName : null
+      if (nextHover !== lastHoverRef.current) {
+        lastHoverRef.current = nextHover
+        onHoverSpectrum(nextHover)
       }
     },
     [innerWidth, onHoverSpectrum, spectra, xScale, yScale],

@@ -8,7 +8,7 @@ import {
 } from '../app/librarySync.js'
 import { rebuildVirtualSpectraFromRecipes } from '../app/selectionSync.js'
 import { applyPythonQueryState } from '../app/querySync.js'
-import { useAppState } from './useAppState.js'
+import { useAppActions } from './useAppActions.js'
 import { initPyodide } from '../python/initPyodide.js'
 import { PyodideContext } from './PyodideContext.js'
 
@@ -26,8 +26,8 @@ function formatResult(value) {
   return String(value)
 }
 
-export function PyodideProvider({ children }) {
-  const { appState, setQueryState } = useAppState()
+export function PyodideProvider({ children, initialAppState }) {
+  const { setQueryState } = useAppActions()
   const [pyodide, setPyodide] = useState(null)
   const [status, setStatus] = useState('loading')
   const [loadingMessage, setLoadingMessage] = useState('Loading Python runtime…')
@@ -37,7 +37,7 @@ export function PyodideProvider({ children }) {
   const pyodideRef = useRef(null)
   const catalogRef = useRef(null)
   const bootstrapRef = useRef(false)
-  const initialAppStateRef = useRef(appState)
+  const initialAppStateRef = useRef(initialAppState)
 
   const enqueue = useCallback((task) => {
     const job = async () => task()

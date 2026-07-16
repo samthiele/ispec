@@ -36,7 +36,8 @@ import {
   runPythonSearch,
 } from '../../app/querySync.js'
 import { useLongPress } from '../../app/useLongPress.js'
-import { useAppState } from '../../context/useAppState.js'
+import { useCoreAppState } from '../../context/useAppState.js'
+import { useInteraction } from '../../context/useInteraction.js'
 import { usePyodide } from '../../context/usePyodide.js'
 import './Query.css'
 
@@ -188,7 +189,8 @@ function SelectedSpectrumItem({
 }
 
 export default function Query() {
-  const { appState, setQueryState, hoveredSpectrum, setHoveredSpectrum } = useAppState()
+  const { appState, setQueryState } = useCoreAppState()
+  const { hoveredSpectrum, setHoveredSpectrum } = useInteraction()
   const { status, pyodide, runQueued } = usePyodide()
   const [draftQuery, setDraftQuery] = useState(appState.query)
   const [draftConfidence, setDraftConfidence] = useState(String(appState.confidence))

@@ -16,9 +16,9 @@ import {
   resolveBiplotLimits,
   styleBiplotPoint,
 } from '../../app/biplotStyling.js'
-import { runPythonSearch } from '../../app/querySync.js'
 import {
   biplotCrosshairFromPoint,
+  crosshairEqual,
   EMPTY_BIPLOT_CROSSHAIR,
   POSITION_GUIDE_LINE_COLOR,
 } from '../../app/spectralExpression.js'
@@ -28,7 +28,8 @@ import {
   selectionColorsDep,
   selectionGroupDep,
 } from '../../app/selectionMeta.js'
-import { useAppState } from '../../context/useAppState.js'
+import { useCoreAppState } from '../../context/useAppState.js'
+import { useInteraction } from '../../context/useInteraction.js'
 import { usePyodide } from '../../context/usePyodide.js'
 import './Biplot.css'
 
@@ -374,16 +375,13 @@ function BiplotScatter({
 }
 
 export default function Biplot({ paneIndex, paneState }) {
-  const {
-    appState,
-    hoveredSpectrum,
-    setHoveredSpectrum,
-    biplotCrosshair,
-    setBiplotCrosshair,
-    updatePane,
-  } = useAppState()
+  const { appState, updatePane } = useCoreAppState()
+  const { hoveredSpectrum, setHoveredSpectrum, biplotCrosshair, setBiplotCrosshair } =
+    useInteraction()
   const { status, pyodide, runQueued } = usePyodide()
-  const config = useMemo(() => mergePaneState(paneState), [paneState])
+  const savedConfig = useMemo(() => mergePaneState(paneState), [paneState])
+  const [draftConfig, setDraftConfig] = useState(savedConfig)
+  const [plotConfig, setPlotConfig] = useState(savedConfig)
   const savedBiplotConfig = hasSavedBiplotPaneState(paneState)
   const restoredPlotRef = useRef(false)
   const [plotData, setPlotData] = useState({ points: [], errors: [] })
@@ -391,6 +389,11 @@ export default function Biplot({ paneIndex, paneState }) {
   const [error, setError] = useState('')
   const [hasPlotted, setHasPlotted] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(() => !savedBiplotConfig)
+
+  useEffect(() => {
+    setDraftConfig(savedConfig)
+    setPlotConfig(savedConfig)
+  }, [savedConfig])
 
   const pageSlice = useMemo(() => {
     const [start, end] = appState.slice
@@ -411,24 +414,32 @@ export default function Biplot({ paneIndex, paneState }) {
     [appState.selection, colorsDep],
   )
 
-  const patchPane = useCallback(
-    (patch) => {
-      updatePane(paneIndex, {
-        state: { ...config, ...patch },
-      })
-    },
-    [config, paneIndex, updatePane],
-  )
+  const patchDraft = useCallback((patch) => {
+    setDraftConfig((current) => ({ ...current, ...patch }))
+  }, [])
 
   const limits = useMemo(
-    () => resolveBiplotLimits(plotData.points, config),
+    () => resolveBiplotLimits(plotData.points, plotConfig),
     [
-      config.colorMax,
-      config.colorMin,
-      config.opacityMax,
-      config.opacityMin,
-      config.sizeMax,
-      config.sizeMin,
+      plotConfig.colorMax,
+      plotConfig.colorMin,
+      plotConfig.opacityMax,
+      plotConfig.opacityMin,
+      plotConfig.sizeMax,
+      plotConfig.sizeMin,
+      plotData.points,
+    ],
+  )
+
+  const draftLimits = useMemo(
+    () => resolveBiplotLimits(plotData.points, draftConfig),
+    [
+      draftConfig.colorMax,
+      draftConfig.colorMin,
+      draftConfig.opacityMax,
+      draftConfig.opacityMin,
+      draftConfig.sizeMax,
+      draftConfig.sizeMin,
       plotData.points,
     ],
   )
@@ -447,27 +458,34 @@ export default function Biplot({ paneIndex, paneState }) {
     (name) => {
       setHoveredSpectrum(name)
       if (!name) {
-        setBiplotCrosshair(EMPTY_BIPLOT_CROSSHAIR)
+        if (biplotCrosshair.active) {
+          setBiplotCrosshair(EMPTY_BIPLOT_CROSSHAIR)
+        }
         return
       }
 
       const point = plotData.points.find((entry) => entry.name === name)
-      const guides = biplotCrosshairFromPoint(point, config.xExpr, config.yExpr)
-      setBiplotCrosshair({
+      const guides = biplotCrosshairFromPoint(point, plotConfig.xExpr, plotConfig.yExpr)
+      const nextCrosshair = {
         active: guides.x != null || guides.y != null,
         ...guides,
-      })
+      }
+      if (!crosshairEqual(biplotCrosshair, nextCrosshair)) {
+        setBiplotCrosshair(nextCrosshair)
+      }
     },
-    [config.xExpr, config.yExpr, plotData.points, setBiplotCrosshair, setHoveredSpectrum],
+    [biplotCrosshair, plotConfig.xExpr, plotConfig.yExpr, plotData.points, setBiplotCrosshair, setHoveredSpectrum],
   )
 
   const handleBiplotPlotLeave = useCallback(() => {
-    setBiplotCrosshair(EMPTY_BIPLOT_CROSSHAIR)
-  }, [setBiplotCrosshair])
+    if (biplotCrosshair.active) {
+      setBiplotCrosshair(EMPTY_BIPLOT_CROSSHAIR)
+    }
+  }, [biplotCrosshair.active, setBiplotCrosshair])
 
   const runPlot = useCallback(async () => {
     if (status !== 'ready' || !pyodide || loading) return false
-    if (!config.xExpr.trim() || !config.yExpr.trim()) {
+    if (!draftConfig.xExpr.trim() || !draftConfig.yExpr.trim()) {
       setError('Both X and Y attribute expressions are required.')
       setPlotData({ points: [], errors: [] })
       setHasPlotted(false)
@@ -478,28 +496,24 @@ export default function Biplot({ paneIndex, paneState }) {
     setError('')
 
     try {
-      const data = await runQueued(async () => {
-        const query = appState.query.trim()
-        if (query) {
-          await runPythonSearch(pyodide, query, appState.confidence)
-        }
-
-        return exportBiplotData(pyodide, {
+      const data = await runQueued(() =>
+        exportBiplotData(pyodide, {
           pageStart: pageSlice[0],
           pageEnd: pageSlice[1],
           lookupMap,
-          xExpr: config.xExpr,
-          yExpr: config.yExpr,
-          width: parseNumber(config.width, 50),
-          colorExpr: config.colorExpr,
-          opacityExpr: config.opacityExpr,
-          sizeExpr: config.sizeExpr,
-        })
-      })
+          xExpr: draftConfig.xExpr,
+          yExpr: draftConfig.yExpr,
+          width: parseNumber(draftConfig.width, 50),
+          colorExpr: draftConfig.colorExpr,
+          opacityExpr: draftConfig.opacityExpr,
+          sizeExpr: draftConfig.sizeExpr,
+        }),
+      )
 
       setPlotData(data)
+      setPlotConfig(draftConfig)
       setHasPlotted(true)
-      updatePane(paneIndex, { state: compactBiplotPaneState(config) })
+      updatePane(paneIndex, { state: compactBiplotPaneState(draftConfig) })
       if (data.errors.length) {
         setError(`${data.errors.length} spectra could not be evaluated.`)
       }
@@ -513,9 +527,7 @@ export default function Biplot({ paneIndex, paneState }) {
       setLoading(false)
     }
   }, [
-    appState.confidence,
-    appState.query,
-    config,
+    draftConfig,
     loading,
     lookupMap,
     pageSlice,
@@ -567,11 +579,11 @@ export default function Biplot({ paneIndex, paneState }) {
 
         {settingsOpen ? (
           <BiplotSettingsPanel
-            config={config}
-            limits={limits}
+            config={draftConfig}
+            limits={draftLimits}
             disabled={controlsDisabled}
             loading={loading}
-            onPatch={patchPane}
+            onPatch={patchDraft}
             onUpdate={handleUpdate}
           />
         ) : null}
@@ -590,7 +602,7 @@ export default function Biplot({ paneIndex, paneState }) {
                   width={width}
                   height={height}
                   points={plotData.points}
-                  config={config}
+                  config={plotConfig}
                   limits={limits}
                   styleContext={styleContext}
                   crosshair={biplotCrosshair}

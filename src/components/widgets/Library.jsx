@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { fetchLibraryCatalog, findLibraryById } from '../../app/libraries.js'
-import { useAppState } from '../../context/useAppState.js'
+import { useCoreAppState } from '../../context/useAppState.js'
 import { usePyodide } from '../../context/usePyodide.js'
 import './Library.css'
 
@@ -33,7 +33,7 @@ function LibraryList({ title, items, selectedId, emptyLabel, onSelect, onActivat
 }
 
 export default function Library() {
-  const { appState, setLibraries } = useAppState()
+  const { appState, setLibraries } = useCoreAppState()
   const { status: pyodideStatus, loadLibrary, unloadLibrary } = usePyodide()
   const [catalog, setCatalog] = useState([])
   const [status, setStatus] = useState('loading')

@@ -28,7 +28,11 @@ export default function App() {
       initialState={INITIAL_LOAD.state}
       loadedFromHash={INITIAL_LOAD.loadedFromHash}
     >
-      <ISpec shareNotice={shareNotice} onShareNotice={setShareNotice} />
+      <ISpec
+        bootstrapAppState={INITIAL_LOAD.state}
+        shareNotice={shareNotice}
+        onShareNotice={setShareNotice}
+      />
     </AppStateProvider>
   )
 }

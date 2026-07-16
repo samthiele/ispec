@@ -5,8 +5,13 @@ import {
   setViewMode as setViewModeState,
   updatePane as updatePaneState,
 } from '../app/appState.js'
-import { EMPTY_BIPLOT_CROSSHAIR } from '../app/spectralExpression.js'
+import {
+  crosshairEqual,
+  EMPTY_BIPLOT_CROSSHAIR,
+} from '../app/spectralExpression.js'
+import { AppActionsContext } from './AppActionsContext.js'
 import { AppStateContext } from './AppStateContext.js'
+import { InteractionContext } from './InteractionContext.js'
 
 export function AppStateProvider({ children, initialState, loadedFromHash = false }) {
   const [appState, setAppState] = useState(() =>
@@ -30,39 +35,55 @@ export function AppStateProvider({ children, initialState, loadedFromHash = fals
     setAppState((current) => ({ ...current, ...patch }))
   }, [])
 
-  const [hoveredSpectrum, setHoveredSpectrum] = useState(null)
+  const [hoveredSpectrum, setHoveredSpectrumState] = useState(null)
   const [biplotCrosshair, setBiplotCrosshairState] = useState(EMPTY_BIPLOT_CROSSHAIR)
 
-  const setBiplotCrosshair = useCallback((next) => {
-    setBiplotCrosshairState(next ?? EMPTY_BIPLOT_CROSSHAIR)
+  const setHoveredSpectrum = useCallback((next) => {
+    setHoveredSpectrumState((current) => (current === next ? current : next))
   }, [])
 
-  const value = useMemo(
+  const setBiplotCrosshair = useCallback((next) => {
+    const value = next ?? EMPTY_BIPLOT_CROSSHAIR
+    setBiplotCrosshairState((current) => (crosshairEqual(current, value) ? current : value))
+  }, [])
+
+  const appValue = useMemo(
     () => ({
       appState,
+      setAppState,
+      hydratedFromHash,
+    }),
+    [appState, hydratedFromHash],
+  )
+
+  const actionsValue = useMemo(
+    () => ({
       setAppState,
       updatePane,
       setViewMode,
       setLibraries,
       setQueryState,
+    }),
+    [setLibraries, setQueryState, setViewMode, updatePane],
+  )
+
+  const interactionValue = useMemo(
+    () => ({
       hoveredSpectrum,
       setHoveredSpectrum,
       biplotCrosshair,
       setBiplotCrosshair,
-      hydratedFromHash,
     }),
-    [
-      appState,
-      updatePane,
-      setViewMode,
-      setLibraries,
-      setQueryState,
-      hoveredSpectrum,
-      biplotCrosshair,
-      setBiplotCrosshair,
-      hydratedFromHash,
-    ],
+    [biplotCrosshair, hoveredSpectrum, setBiplotCrosshair, setHoveredSpectrum],
   )
 
-  return <AppStateContext.Provider value={value}>{children}</AppStateContext.Provider>
+  return (
+    <AppActionsContext.Provider value={actionsValue}>
+      <AppStateContext.Provider value={appValue}>
+        <InteractionContext.Provider value={interactionValue}>
+          {children}
+        </InteractionContext.Provider>
+      </AppStateContext.Provider>
+    </AppActionsContext.Provider>
+  )
 }

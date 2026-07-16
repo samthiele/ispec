@@ -1,6 +1,7 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
+import { normalizeAppState } from '../app/appState.js'
 import { copyShareUrl } from '../app/shareState.js'
-import { useAppState } from '../context/useAppState.js'
+import { useCoreAppState } from '../context/useAppState.js'
 import { PyodideProvider } from '../context/PyodideProvider.jsx'
 import { usePyodide } from '../context/usePyodide.js'
 import BiLayout from './BiLayout.jsx'
@@ -16,7 +17,7 @@ const LAYOUTS = {
 }
 
 function ISpecShell({ shareNotice, onShareNotice }) {
-  const { appState, setViewMode, hydratedFromHash } = useAppState()
+  const { appState, setViewMode, hydratedFromHash } = useCoreAppState()
   const { status, loadingMessage, error } = usePyodide()
   const [viewModeLocked, setViewModeLocked] = useState(hydratedFromHash)
   const Layout = LAYOUTS[appState.viewMode] ?? TriLayout
@@ -110,9 +111,13 @@ function ISpecShell({ shareNotice, onShareNotice }) {
   )
 }
 
-export default function ISpec(props) {
+export default function ISpec({ bootstrapAppState, ...props }) {
+  const pyodideBootstrapRef = useRef(
+    normalizeAppState(bootstrapAppState ?? undefined),
+  )
+
   return (
-    <PyodideProvider>
+    <PyodideProvider initialAppState={pyodideBootstrapRef.current}>
       <ISpecShell {...props} />
     </PyodideProvider>
   )

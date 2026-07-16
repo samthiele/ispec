@@ -1,9 +1,9 @@
 import { WIDGET_TYPES } from './widgets/index.js'
-import { useAppState } from '../context/useAppState.js'
+import { useCoreAppState } from '../context/useAppState.js'
 import './CFrame.css'
 
 export default function CFrame({ paneIndex }) {
-  const { appState, updatePane } = useAppState()
+  const { appState, updatePane } = useCoreAppState()
   const pane = appState.panes[paneIndex]
   const widget =
     WIDGET_TYPES.find(({ id }) => id === pane?.type) ?? WIDGET_TYPES[0]
