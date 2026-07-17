@@ -1,15 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { DEFAULT_LIBRARY_ID, fetchLibraryCatalog, getDefaultLibraryIds } from '../app/libraries.js'
+import { createDefaultAppState, normalizeLoadedLibraries } from '../app/appState.js'
+import { hydrateSharedAppState } from '../app/hydrateSharedState.js'
 import {
   addPythonLibrary,
   applyPythonUiLibraries,
   removePythonLibrary,
   syncPythonLibraries,
 } from '../app/librarySync.js'
-import { rebuildVirtualSpectraFromRecipes } from '../app/selectionSync.js'
-import { applyPythonQueryState } from '../app/querySync.js'
-import { normalizeLoadedLibraries } from '../app/appState.js'
-import { useAppActions } from './useAppActions.js'
+import { useCoreAppState } from './useAppState.js'
 import { initPyodide } from '../python/initPyodide.js'
 import { PyodideContext } from './PyodideContext.js'
 
@@ -28,7 +27,13 @@ function formatResult(value) {
 }
 
 export function PyodideProvider({ children, initialAppState }) {
-  const { setQueryState, setLibraries } = useAppActions()
+  const { appState, setAppState, setSearchResults, setLibraries } = useCoreAppState()
+  const appStateRef = useRef(appState)
+
+  useEffect(() => {
+    appStateRef.current = appState
+  }, [appState])
+
   const [pyodide, setPyodide] = useState(null)
   const [status, setStatus] = useState('loading')
   const [loadingMessage, setLoadingMessage] = useState('Loading Python runtime…')
@@ -79,6 +84,33 @@ export function PyodideProvider({ children, initialAppState }) {
     [appendTranscript, getCatalog],
   )
 
+  const applySharedState = useCallback(
+    (incomingRaw, { merge = true } = {}) =>
+      enqueue(async () => {
+        const instance = pyodideRef.current
+        if (!instance) {
+          throw new Error('Python runtime not ready')
+        }
+
+        const catalog = await getCatalog()
+        const { state, searchResults } = await hydrateSharedAppState(
+          instance,
+          catalog,
+          appStateRef.current,
+          incomingRaw,
+          {
+            merge,
+            syncLibraries: (py, cat, ids) => syncPythonLibraries(py, cat, ids),
+          },
+        )
+        setAppState(state)
+        setLibraries(state.libraries)
+        setSearchResults(searchResults)
+        return state
+      }),
+    [enqueue, getCatalog, setAppState, setLibraries, setSearchResults],
+  )
+
   useEffect(() => {
     let cancelled = false
 
@@ -93,30 +125,33 @@ export function PyodideProvider({ children, initialAppState }) {
         setPyodide(instance)
 
         setLoadingMessage('Loading spectral libraries…')
-        const initial = initialAppStateRef.current
+        const initial = initialAppStateRef.current ?? createDefaultAppState()
         const catalog = await getCatalog()
-        let libraries = normalizeLoadedLibraries(initial?.libraries, { fallbackToDefault: false })
+        let libraries = normalizeLoadedLibraries(initial.libraries, { fallbackToDefault: false })
         if (libraries.length === 0) {
           libraries = getDefaultLibraryIds(catalog)
         }
         if (libraries.length === 0) {
           libraries = [DEFAULT_LIBRARY_ID]
         }
-        await syncLibrariesImpl(libraries, { echo: true })
-        setLibraries(libraries)
-        await applyPythonQueryState(instance, {
-          query: initial.query ?? '',
-          slice: initial.slice,
-          selection: initial.selection ?? [],
-        })
 
-        const rebuilt = await rebuildVirtualSpectraFromRecipes(
+        const emptyBaseline = { ...createDefaultAppState(initial.viewMode), libraries: [] }
+        const { state, searchResults } = await hydrateSharedAppState(
           instance,
-          initial.virtualMixRecipes ?? {},
+          catalog,
+          emptyBaseline,
+          { ...initial, libraries },
+          {
+            merge: false,
+            syncLibraries: (py, cat, ids) => syncPythonLibraries(py, cat, ids),
+          },
         )
-        setQueryState({ virtualSpectra: rebuilt })
 
         if (cancelled) return
+
+        setAppState(state)
+        setLibraries(state.libraries)
+        setSearchResults(searchResults)
 
         setStatus('ready')
         setTranscript([
@@ -135,7 +170,7 @@ export function PyodideProvider({ children, initialAppState }) {
     return () => {
       cancelled = true
     }
-  }, [setLibraries, setQueryState, syncLibrariesImpl])
+  }, [getCatalog, setAppState, setLibraries, setSearchResults, syncLibrariesImpl])
 
   const execute = useCallback(
     (code, { source = 'console', echo = true } = {}) => {
@@ -262,6 +297,7 @@ export function PyodideProvider({ children, initialAppState }) {
       syncLibraries,
       loadLibrary,
       unloadLibrary,
+      applySharedState,
     }),
     [
       pyodide,
@@ -274,6 +310,7 @@ export function PyodideProvider({ children, initialAppState }) {
       syncLibraries,
       loadLibrary,
       unloadLibrary,
+      applySharedState,
     ],
   )
 

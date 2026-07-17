@@ -195,18 +195,16 @@ function SelectedSpectrumItem({
 }
 
 export default function Query() {
-  const { appState, setQueryState } = useCoreAppState()
+  const { appState, setQueryState, searchResults, setSearchResults } = useCoreAppState()
   const { hoveredSpectrum, setHoveredSpectrum } = useInteraction()
   const { status, pyodide, runQueued } = usePyodide()
   const [draftQuery, setDraftQuery] = useState(appState.query)
   const [draftConfidence, setDraftConfidence] = useState(String(appState.confidence))
   const [draftPageSize, setDraftPageSize] = useState(String(appState.pageSize))
-  const [searchResults, setSearchResults] = useState(null)
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
   const [colorDrafts, setColorDrafts] = useState({})
   const [mixDrafts, setMixDrafts] = useState({})
-  const restoredSearchRef = useRef(false)
   const colorTimersRef = useRef({})
   const mixTimersRef = useRef({})
   const selection = appState.selection
@@ -263,27 +261,6 @@ export default function Query() {
     }
     return percents
   }, [effectiveMixPercent, selection])
-
-  useEffect(() => {
-    if (status !== 'ready' || !pyodide || restoredSearchRef.current) return
-    const query = appState.query.trim()
-    if (!query) return
-
-    restoredSearchRef.current = true
-    setBusy(true)
-    setError('')
-
-    runQueued(async () => {
-      const results = await runPythonSearch(pyodide, query, appState.confidence)
-      setSearchResults(results)
-    })
-      .catch((err) => {
-        setError(err instanceof Error ? err.message : String(err))
-      })
-      .finally(() => {
-        setBusy(false)
-      })
-  }, [status, pyodide, appState.query, appState.confidence, runQueued])
 
   const total = searchResults?.total ?? 0
   const selectedSet = useMemo(() => new Set(selection), [selection])

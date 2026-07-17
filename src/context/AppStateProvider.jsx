@@ -18,6 +18,7 @@ export function AppStateProvider({ children, initialState, loadedFromHash = fals
     normalizeAppState(initialState ?? createDefaultAppState()),
   )
   const [hydratedFromHash] = useState(loadedFromHash)
+  const [searchResults, setSearchResults] = useState(null)
 
   const updatePane = useCallback((paneIndex, patch) => {
     setAppState((current) => updatePaneState(current, paneIndex, patch))
@@ -52,8 +53,10 @@ export function AppStateProvider({ children, initialState, loadedFromHash = fals
       appState,
       setAppState,
       hydratedFromHash,
+      searchResults,
+      setSearchResults,
     }),
-    [appState, hydratedFromHash],
+    [appState, hydratedFromHash, searchResults],
   )
 
   const actionsValue = useMemo(
@@ -63,8 +66,9 @@ export function AppStateProvider({ children, initialState, loadedFromHash = fals
       setViewMode,
       setLibraries,
       setQueryState,
+      setSearchResults,
     }),
-    [setLibraries, setQueryState, setViewMode, updatePane],
+    [setLibraries, setQueryState, setSearchResults, setViewMode, updatePane],
   )
 
   const interactionValue = useMemo(

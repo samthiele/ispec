@@ -144,6 +144,113 @@
   font-size: 0.88rem;
 }
 
+.llm-markdown {
+  font-size: 0.88rem;
+  line-height: 1.5;
+  color: var(--text-color);
+}
+
+.llm-line--user .llm-markdown {
+  color: var(--accent);
+}
+
+.llm-markdown-p {
+  margin: 0.35rem 0;
+}
+
+.llm-markdown-p:first-child {
+  margin-top: 0.15rem;
+}
+
+.llm-markdown-p:last-child {
+  margin-bottom: 0;
+}
+
+.llm-markdown-list {
+  margin: 0.35rem 0;
+  padding-left: 1.25rem;
+}
+
+.llm-markdown-list-item {
+  margin: 0.15rem 0;
+}
+
+.llm-markdown-heading {
+  margin: 0.5rem 0 0.25rem;
+  font-size: 0.92rem;
+  font-weight: 600;
+}
+
+.llm-markdown-inline-code {
+  padding: 0.05rem 0.3rem;
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--text-color) 8%, transparent);
+  font-size: 0.85em;
+}
+
+.llm-markdown-pre {
+  margin: 0.4rem 0;
+  padding: 0.45rem 0.55rem;
+  border-radius: 4px;
+  background: #0d0e10;
+  border: 1px solid var(--border-color);
+  overflow-x: auto;
+  font-size: 0.82rem;
+}
+
+.llm-markdown a {
+  color: var(--accent);
+}
+
+.llm-state-proposal {
+  margin-top: 0.55rem;
+  padding: 0.55rem 0.65rem;
+  border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--border-color));
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--accent) 5%, #121316);
+}
+
+.llm-state-proposal--applied {
+  border-color: color-mix(in srgb, var(--accent) 55%, transparent);
+  opacity: 0.85;
+}
+
+.llm-state-proposal-title {
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+  margin-bottom: 0.35rem;
+}
+
+.llm-state-proposal-list {
+  margin: 0 0 0.45rem;
+  padding-left: 1.1rem;
+  font-size: 0.84rem;
+}
+
+.llm-state-proposal-list li {
+  margin: 0.12rem 0;
+}
+
+.llm-state-proposal-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.llm-state-proposal-error {
+  margin-bottom: 0.4rem;
+  font-size: 0.82rem;
+  color: var(--error);
+}
+
+.llm-state-proposal-source {
+  margin-top: 0.35rem;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
 .llm-line--user pre {
   color: var(--accent);
 }

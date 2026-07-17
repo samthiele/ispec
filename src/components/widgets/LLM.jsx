@@ -1,27 +1,43 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { toShareableState } from '../../app/appState.js'
 import { clearGeminiApiKey, getGeminiApiKey, setGeminiApiKey } from '../../app/geminiApiKey.js'
 import { createGeminiChat, sendGeminiMessage } from '../../app/geminiClient.js'
 import { GEMINI_MODELS, geminiModelLabel, getGeminiModel, setGeminiModel } from '../../app/geminiModels.js'
-import { formatSpectralFeaturesSummary, NO_SELECTION_SUMMARY } from '../../app/llmFeatures.js'
+import { buildLlmSpectralContext } from '../../app/llmFeatures.js'
 import {
   exportSelectionSpectralFeatures,
   loadSkillDocument,
 } from '../../app/llmSync.js'
+import {
+  extractStateBlocks,
+  formatStateProposalPreview,
+  mergeStateProposal,
+} from '../../app/llmStateBlocks.js'
 import { buildLookupMap, selectionGroupDep } from '../../app/selectionMeta.js'
+import { buildShareUrl } from '../../app/shareState.js'
 import { useCoreAppState } from '../../context/useAppState.js'
 import { usePyodide } from '../../context/usePyodide.js'
+import LlmMarkdown from './LlmMarkdown.jsx'
 import './LLM.css'
 
-function buildSystemInstruction(skillText, spectralSummary) {
+function buildSystemInstruction(skillText, spectralSummary, currentStateJson) {
   return `${skillText.trim()}
 
 ---
 
-## Current selection — spectral feature summary
+## Current app state (shareable JSON)
+
+${currentStateJson}
+
+When proposing configuration changes, emit a \`\`\`ispec-state fenced JSON block with only the fields to change (or a full object for complete reconfiguration). Do not produce compressed share URLs — the app builds those from JSON.
+
+---
+
+## Query, results & selection context
 
 ${spectralSummary}
 
-Interpret user questions in light of this summary. Cite wavelengths (nm) from the summary when reasoning about minerals or mixtures.`
+Interpret user questions in light of this context. Cite wavelengths (nm) from selected-spectra features when reasoning about minerals or mixtures. Use canonical names from search results when proposing selection updates.`
 }
 
 function toGeminiHistory(messages) {
@@ -88,9 +104,55 @@ function ApiKeyModal({ draft, onDraftChange, onSave, onClose }) {
   )
 }
 
+function StateProposalCard({
+  proposal,
+  mergedState,
+  disabled,
+  applied,
+  applying,
+  applyError,
+  onApply,
+  onCopyLink,
+}) {
+  const previewLines = formatStateProposalPreview(mergedState)
+
+  return (
+    <div className={`llm-state-proposal${applied ? ' llm-state-proposal--applied' : ''}`}>
+      <div className="llm-state-proposal-title">Suggested app configuration</div>
+      <ul className="llm-state-proposal-list">
+        {previewLines.map((line) => (
+          <li key={line}>{line}</li>
+        ))}
+      </ul>
+      {applyError ? <div className="llm-state-proposal-error">{applyError}</div> : null}
+      <div className="llm-state-proposal-actions">
+        <button
+          type="button"
+          className="llm-button llm-button--primary llm-button--small"
+          onClick={onApply}
+          disabled={disabled || applied || applying}
+        >
+          {applied ? 'Applied' : applying ? 'Applying…' : 'Apply'}
+        </button>
+        <button
+          type="button"
+          className="llm-button llm-button--small"
+          onClick={onCopyLink}
+          disabled={disabled}
+        >
+          Copy share link
+        </button>
+      </div>
+      {proposal.source === 'url' ? (
+        <div className="llm-state-proposal-source">From share link</div>
+      ) : null}
+    </div>
+  )
+}
+
 export default function LLM() {
-  const { appState } = useCoreAppState()
-  const { status, pyodide, runQueued } = usePyodide()
+  const { appState, searchResults } = useCoreAppState()
+  const { status, pyodide, runQueued, applySharedState } = usePyodide()
   const [apiKey, setApiKeyState] = useState(() => getGeminiApiKey())
   const [model, setModelState] = useState(() => getGeminiModel())
   const [showKeyModal, setShowKeyModal] = useState(false)
@@ -103,6 +165,8 @@ export default function LLM() {
   const [input, setInput] = useState('')
   const [busy, setBusy] = useState(false)
   const [chatError, setChatError] = useState(null)
+  const [applyErrors, setApplyErrors] = useState({})
+  const [applyingKey, setApplyingKey] = useState(null)
   const chatRef = useRef(null)
   const transcriptRef = useRef(null)
   const messagesRef = useRef(messages)
@@ -110,6 +174,11 @@ export default function LLM() {
   const groupDep = selectionGroupDep(appState.selection, selectionMeta)
 
   messagesRef.current = messages
+
+  const currentStateJson = useMemo(
+    () => JSON.stringify(toShareableState(appState), null, 2),
+    [appState],
+  )
 
   const lookupMap = useMemo(
     () => buildLookupMap(appState.selection, selectionMeta),
@@ -140,35 +209,47 @@ export default function LLM() {
     }
   }, [])
 
+  const searchContextDep = useMemo(
+    () =>
+      JSON.stringify({
+        query: appState.query,
+        slice: appState.slice,
+        pageSize: appState.pageSize,
+        total: searchResults?.total ?? 0,
+        names: searchResults?.names ?? [],
+        scores: searchResults?.scores ?? [],
+      }),
+    [appState.pageSize, appState.query, appState.slice, searchResults],
+  )
+
   useEffect(() => {
     if (status !== 'ready' || !pyodide) return undefined
 
     let cancelled = false
     runQueued(async () => {
-      if (!appState.selection.length) {
-        if (!cancelled) {
-          setSpectralSummary(NO_SELECTION_SUMMARY)
-          setFeatureError(null)
-          console.info('[iSpec LLM] spectral features — no selection')
-        }
-        return
-      }
-
       try {
-        const exported = await exportSelectionSpectralFeatures(
-          pyodide,
-          appState.selection,
-          lookupMap,
-        )
-        const summary = formatSpectralFeaturesSummary(exported)
-        console.info('[iSpec LLM] spectral features export', exported)
-        console.info('[iSpec LLM] spectral features summary\n', summary)
+        let selectionExport = { spectra: [] }
+        if (appState.selection.length) {
+          selectionExport = await exportSelectionSpectralFeatures(
+            pyodide,
+            appState.selection,
+            lookupMap,
+          )
+        }
+
+        const summary = buildLlmSpectralContext({
+          selectionExport,
+          query: appState.query,
+          searchResults,
+          slice: appState.slice,
+          pageSize: appState.pageSize,
+          selection: appState.selection,
+        })
         if (cancelled) return
         setSpectralSummary(summary)
         setFeatureError(null)
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error)
-        console.error('[iSpec LLM] spectral feature export failed', error)
         if (!cancelled) {
           setFeatureError(message)
         }
@@ -178,7 +259,7 @@ export default function LLM() {
     return () => {
       cancelled = true
     }
-  }, [status, pyodide, runQueued, selectionDep])
+  }, [status, pyodide, runQueued, selectionDep, searchContextDep, lookupMap])
 
   useEffect(() => {
     if (!apiKey || !skillText) {
@@ -188,10 +269,10 @@ export default function LLM() {
     chatRef.current = createGeminiChat({
       apiKey,
       model,
-      systemInstruction: buildSystemInstruction(skillText, spectralSummary),
+      systemInstruction: buildSystemInstruction(skillText, spectralSummary, currentStateJson),
       history: toGeminiHistory(messagesRef.current),
     })
-  }, [apiKey, model, skillText, spectralSummary])
+  }, [apiKey, model, skillText, spectralSummary, currentStateJson])
 
   useEffect(() => {
     transcriptRef.current?.scrollTo({ top: transcriptRef.current.scrollHeight })
@@ -228,8 +309,50 @@ export default function LLM() {
 
   const startNewChat = useCallback(() => {
     setMessages([])
+    setApplyErrors({})
     setChatError(null)
   }, [])
+
+  const handleApplyProposal = useCallback(
+    async (messageIndex, proposalIndex, proposal) => {
+      const errorKey = `${messageIndex}:${proposalIndex}`
+      setApplyErrors((prev) => {
+        const next = { ...prev }
+        delete next[errorKey]
+        return next
+      })
+      setApplyingKey(errorKey)
+
+      try {
+        await applySharedState(proposal.parsed)
+        setMessages((prev) =>
+          prev.map((message, index) =>
+            index === messageIndex
+              ? {
+                  ...message,
+                  appliedProposals: {
+                    ...(message.appliedProposals ?? {}),
+                    [proposalIndex]: true,
+                  },
+                }
+              : message,
+          ),
+        )
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error)
+        setApplyErrors((prev) => ({ ...prev, [errorKey]: message }))
+      } finally {
+        setApplyingKey(null)
+      }
+    },
+    [applySharedState],
+  )
+
+  const handleCopyProposalLink = useCallback(async (proposal) => {
+    const merged = mergeStateProposal(appState, proposal.parsed)
+    const url = buildShareUrl(merged)
+    await navigator.clipboard.writeText(url)
+  }, [appState])
 
   const sendMessage = useCallback(async () => {
     const text = input.trim()
@@ -247,7 +370,7 @@ export default function LLM() {
       chatRef.current = createGeminiChat({
         apiKey,
         model,
-        systemInstruction: buildSystemInstruction(skillText, spectralSummary),
+        systemInstruction: buildSystemInstruction(skillText, spectralSummary, currentStateJson),
         history: toGeminiHistory(messagesRef.current),
       })
     }
@@ -259,7 +382,18 @@ export default function LLM() {
 
     try {
       const reply = await sendGeminiMessage(chatRef.current, text)
-      setMessages((prev) => [...prev, { role: 'assistant', kind: 'chat', text: reply }])
+      const { displayText, blocks } = extractStateBlocks(reply)
+      setMessages((prev) => [
+        ...prev,
+        {
+          role: 'assistant',
+          kind: 'chat',
+          text: reply,
+          displayText,
+          stateProposals: blocks,
+          appliedProposals: {},
+        },
+      ])
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
       setChatError(message)
@@ -268,7 +402,7 @@ export default function LLM() {
     } finally {
       setBusy(false)
     }
-  }, [apiKey, busy, input, model, skillError, skillText, spectralSummary])
+  }, [apiKey, busy, currentStateJson, input, model, skillError, skillText, spectralSummary])
 
   const handleKeyDown = (event) => {
     if (event.key === 'Enter' && !event.shiftKey) {
@@ -337,12 +471,29 @@ export default function LLM() {
             API key is requested when you send your first message.
           </div>
         ) : null}
-        {messages.map((message, index) => (
-          <div key={index} className={`llm-line llm-line--${message.role}`}>
+        {messages.map((message, messageIndex) => (
+          <div key={messageIndex} className={`llm-line llm-line--${message.role}`}>
             <div className="llm-role-label">
               {message.role === 'user' ? 'You' : geminiModelLabel(model)}
             </div>
-            <pre>{message.text}</pre>
+            <LlmMarkdown>{message.displayText ?? message.text}</LlmMarkdown>
+            {message.stateProposals?.map((proposal, proposalIndex) => {
+              const mergedState = mergeStateProposal(appState, proposal.parsed)
+              const errorKey = `${messageIndex}:${proposalIndex}`
+              return (
+                <StateProposalCard
+                  key={errorKey}
+                  proposal={proposal}
+                  mergedState={mergedState}
+                  disabled={isDisabled}
+                  applied={Boolean(message.appliedProposals?.[proposalIndex])}
+                  applying={applyingKey === errorKey}
+                  applyError={applyErrors[errorKey]}
+                  onApply={() => handleApplyProposal(messageIndex, proposalIndex, proposal)}
+                  onCopyLink={() => handleCopyProposalLink(proposal)}
+                />
+              )
+            })}
           </div>
         ))}
         {busy ? <div className="llm-line llm-line--system">Thinking…</div> : null}

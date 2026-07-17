@@ -1,9 +1,51 @@
+import { clampSlice } from './querySync.js'
+import { formatSpectrumDisplayName, parseSpectrumName } from './selectionMeta.js'
+
 export const NO_SELECTION_SUMMARY =
   'No spectra selected. Answer general hyperspectral / mineralogy questions; suggest Query selection for sample-specific interpretation.'
 
+function formatScorePercent(score) {
+  return `${(Number(score) * 100).toFixed(1)}%`
+}
+
+export function formatVisibleSearchResults({
+  query,
+  searchResults,
+  slice,
+  pageSize,
+  selection = [],
+}) {
+  const trimmedQuery = String(query ?? '').trim()
+  if (!trimmedQuery || !searchResults?.total) {
+    return 'No active search.'
+  }
+
+  const selectedSet = new Set(selection)
+  const total = searchResults.total
+  const [start, end] = clampSlice(slice, total, pageSize)
+  const lines = [
+    `Query: \`${trimmedQuery}\``,
+    `Showing ranks ${start + 1}–${end} of ${total} matches`,
+    '',
+  ]
+
+  for (let index = start; index < end; index += 1) {
+    const name = searchResults.names[index]
+    const score = searchResults.scores[index]
+    const rank = index + 1
+    const parsed = parseSpectrumName(name)
+    const label = formatSpectrumDisplayName(parsed)
+    const selectedNote = selectedSet.has(name) ? ' — selected (spectral features below)' : ''
+    lines.push(`${rank}. ${label} — match ${formatScorePercent(score)}${selectedNote}`)
+    lines.push(`   Canonical name: ${name}`)
+  }
+
+  return lines.join('\n')
+}
+
 export function formatSpectralFeaturesSummary(exported) {
   if (!exported?.spectra?.length) {
-    return NO_SELECTION_SUMMARY
+    return 'No spectra selected.'
   }
 
   const sections = []
@@ -43,6 +85,39 @@ export function formatSpectralFeaturesSummary(exported) {
   }
 
   return sections.join('\n\n')
+}
+
+export function buildLlmSpectralContext({
+  selectionExport,
+  query,
+  searchResults,
+  slice,
+  pageSize,
+  selection = [],
+}) {
+  const resultsText = formatVisibleSearchResults({
+    query,
+    searchResults,
+    slice,
+    pageSize,
+    selection,
+  })
+
+  const selectionText = formatSpectralFeaturesSummary(selectionExport)
+
+  return [
+    '## Current search results',
+    '',
+    resultsText,
+    '',
+    'Use canonical names from this list when proposing selection in `ispec-state` blocks.',
+    '',
+    '---',
+    '',
+    '## Selected spectra — spectral features',
+    '',
+    selectionText,
+  ].join('\n')
 }
 
 function formatFeatureList(title, features) {
