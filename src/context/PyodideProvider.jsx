@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { fetchLibraryCatalog } from '../app/libraries.js'
+import { DEFAULT_LIBRARY_ID, fetchLibraryCatalog, getDefaultLibraryIds } from '../app/libraries.js'
 import {
   addPythonLibrary,
   applyPythonUiLibraries,
@@ -8,6 +8,7 @@ import {
 } from '../app/librarySync.js'
 import { rebuildVirtualSpectraFromRecipes } from '../app/selectionSync.js'
 import { applyPythonQueryState } from '../app/querySync.js'
+import { normalizeLoadedLibraries } from '../app/appState.js'
 import { useAppActions } from './useAppActions.js'
 import { initPyodide } from '../python/initPyodide.js'
 import { PyodideContext } from './PyodideContext.js'
@@ -27,7 +28,7 @@ function formatResult(value) {
 }
 
 export function PyodideProvider({ children, initialAppState }) {
-  const { setQueryState } = useAppActions()
+  const { setQueryState, setLibraries } = useAppActions()
   const [pyodide, setPyodide] = useState(null)
   const [status, setStatus] = useState('loading')
   const [loadingMessage, setLoadingMessage] = useState('Loading Python runtime…')
@@ -93,7 +94,16 @@ export function PyodideProvider({ children, initialAppState }) {
 
         setLoadingMessage('Loading spectral libraries…')
         const initial = initialAppStateRef.current
-        await syncLibrariesImpl(initial.libraries, { echo: true })
+        const catalog = await getCatalog()
+        let libraries = normalizeLoadedLibraries(initial?.libraries, { fallbackToDefault: false })
+        if (libraries.length === 0) {
+          libraries = getDefaultLibraryIds(catalog)
+        }
+        if (libraries.length === 0) {
+          libraries = [DEFAULT_LIBRARY_ID]
+        }
+        await syncLibrariesImpl(libraries, { echo: true })
+        setLibraries(libraries)
         await applyPythonQueryState(instance, {
           query: initial.query ?? '',
           slice: initial.slice,
@@ -125,7 +135,7 @@ export function PyodideProvider({ children, initialAppState }) {
     return () => {
       cancelled = true
     }
-  }, [setQueryState, syncLibrariesImpl])
+  }, [setLibraries, setQueryState, syncLibrariesImpl])
 
   const execute = useCallback(
     (code, { source = 'console', echo = true } = {}) => {

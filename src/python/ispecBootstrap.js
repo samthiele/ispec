@@ -497,6 +497,112 @@ def create_weighted_mixture(components, output_name):
     }
 
 
+_SENSOR_RESAMPLERS = {}
+
+
+def _normalize_sensor_key(sensor_key):
+    return (
+        str(sensor_key)
+        .upper()
+        .replace("-", "")
+        .replace("_", "")
+        .replace(" ", "")
+    )
+
+
+def _build_band_ranges(start, end, width, count=None):
+    if count is None:
+        count = max(1, int(round((end - start) / width)))
+    step = (end - start) / count
+    return [(start + i * step, start + (i + 1) * step) for i in range(count)]
+
+
+def _get_sensor_resampler(sensor_key):
+    key = _normalize_sensor_key(sensor_key)
+    if key in _SENSOR_RESAMPLERS:
+        return _SENSOR_RESAMPLERS[key]
+
+    from hylite.transform.sample import ASTER, SENTINEL, Resample
+
+    if key == "ASTER":
+        resampler = ASTER
+    elif key == "SENTINEL2":
+        resampler = SENTINEL
+    elif key == "ENMAP":
+        bands = _build_band_ranges(420.0, 998.5, 6.5, 89)
+        bands.extend(_build_band_ranges(900.0, 2450.0, 10.0, 155))
+        resampler = Resample(bands)
+    elif key == "PRISMA":
+        bands = _build_band_ranges(400.0, 1010.0, None, 66)
+        bands.extend(_build_band_ranges(920.0, 2505.0, None, 173))
+        resampler = Resample(bands)
+    elif key == "EMIT":
+        resampler = Resample(_build_band_ranges(381.0, 2493.0, None, 285))
+    else:
+        raise ValueError("Unknown sensor %r." % sensor_key)
+
+    _SENSOR_RESAMPLERS[key] = resampler
+    return resampler
+
+
+def _resample_series_to_sensor(wav, refl, sensor_key):
+    import numpy as np
+    from hylite.hylibrary import HyLibrary
+
+    resampler = _get_sensor_resampler(sensor_key)
+    refl_frac = _reflectance_fraction(refl)
+    hydata = HyLibrary(refl_frac.reshape(1, 1, -1), wav=wav)
+    sampled = resampler.apply(hydata)
+    out_wav = np.asarray(sampled.get_wavelengths(), dtype=np.float64)
+    out_refl = _reflectance_pct(_first_spectrum(sampled))
+
+    valid = np.isfinite(out_wav) & np.isfinite(out_refl)
+    if not np.any(valid):
+        raise ValueError(
+            "Sensor %r produced no overlapping bands for this spectrum."
+            % sensor_key
+        )
+
+    return out_wav[valid], out_refl[valid]
+
+
+def resample_selection_spectra(items, sensor_key):
+    lookup_map = {}
+    spectra = []
+    failures = []
+
+    for item in items:
+        source_name = str(item["source_name"])
+        output_name = str(item["output_name"])
+        lookup = item.get("lookup")
+        if lookup is not None:
+            lookup_map[source_name] = str(lookup)
+        try:
+            wav, refl = _spectrum_series(source_name, lookup_map)
+            out_wav, out_refl = _resample_series_to_sensor(wav, refl, sensor_key)
+            register_virtual_spectrum(output_name, out_wav, out_refl)
+            spectra.append(
+                {
+                    "source_name": source_name,
+                    "name": output_name,
+                    "wavelengths": out_wav.tolist(),
+                    "reflectance": out_refl.tolist(),
+                }
+            )
+        except ValueError as exc:
+            failures.append({"source_name": source_name, "error": str(exc)})
+
+    if not spectra:
+        detail = "; ".join(
+            "%s: %s" % (entry["source_name"], entry["error"]) for entry in failures
+        )
+        raise ValueError(
+            detail or "Resampling produced no virtual spectra."
+        )
+
+    return {"spectra": spectra, "failures": failures}
+
+
 def _page_spectra_meta(page_start, page_end):
     page_start = int(page_start)
     page_end = int(page_end)

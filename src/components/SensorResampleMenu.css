@@ -1,0 +1,46 @@
+.sensor-resample-menu {
+  position: relative;
+  display: inline-flex;
+}
+
+.sensor-resample-menu-dropdown {
+  position: absolute;
+  top: calc(100% + 0.25rem);
+  right: 0;
+  z-index: 10;
+  min-width: 7.5rem;
+  padding: 0.25rem;
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  background: rgba(34, 35, 39, 0.98);
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.28);
+}
+
+.sensor-resample-menu-option {
+  display: block;
+  width: 100%;
+  font: inherit;
+  font-size: 0.72rem;
+  padding: 0.35rem 0.5rem;
+  border: 0;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--text-color);
+  text-align: left;
+  cursor: pointer;
+}
+
+.sensor-resample-menu-option:hover:not(:disabled) {
+  background: #3c4043;
+}
+
+.sensor-resample-menu-option:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.sensor-resample-menu--open .sensor-resample-menu-trigger,
+.sensor-resample-menu-trigger:focus-visible {
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--border-color));
+  color: var(--accent);
+}

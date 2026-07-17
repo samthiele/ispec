@@ -14,8 +14,11 @@ export function parseHashState() {
     const compressed = hash.slice(HASH_PREFIX.length)
     const json = decompressFromEncodedURIComponent(compressed)
     if (!json) return null
-    return normalizeAppState(JSON.parse(json))
-  } catch {
+    const parsed = JSON.parse(json)
+    console.info('[iSpec share] loaded state from URL hash:', parsed)
+    return normalizeAppState(parsed)
+  } catch (error) {
+    console.warn('[iSpec share] failed to parse URL hash state', error)
     return null
   }
 }

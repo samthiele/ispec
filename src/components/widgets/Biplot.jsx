@@ -31,6 +31,7 @@ import {
 import { useCoreAppState } from '../../context/useAppState.js'
 import { useInteraction } from '../../context/useInteraction.js'
 import { usePyodide } from '../../context/usePyodide.js'
+import PlotSaveMenu from '../PlotSaveMenu.jsx'
 import './Biplot.css'
 
 const plotMargin = { top: 12, right: 12, bottom: 42, left: 52 }
@@ -384,6 +385,7 @@ export default function Biplot({ paneIndex, paneState }) {
   const [plotConfig, setPlotConfig] = useState(savedConfig)
   const savedBiplotConfig = hasSavedBiplotPaneState(paneState)
   const restoredPlotRef = useRef(false)
+  const plotHostRef = useRef(null)
   const [plotData, setPlotData] = useState({ points: [], errors: [] })
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
@@ -566,7 +568,15 @@ export default function Biplot({ paneIndex, paneState }) {
 
   return (
     <div className="widget widget-biplot">
-      <div className="biplot-plot-host" onMouseLeave={handleBiplotPlotLeave}>
+      <div className="biplot-plot-host" ref={plotHostRef} onMouseLeave={handleBiplotPlotLeave}>
+        {showPlot ? (
+          <PlotSaveMenu
+            containerRef={plotHostRef}
+            basename="biplot"
+            className="biplot-save-menu"
+            disabled={loading}
+          />
+        ) : null}
         <button
           type="button"
           className={`biplot-settings-toggle${settingsOpen ? ' biplot-settings-toggle--active' : ''}`}

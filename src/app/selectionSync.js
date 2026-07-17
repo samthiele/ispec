@@ -94,6 +94,75 @@ export async function createPythonWeightedMixture(pyodide, components, outputNam
   return toMixturePayload(exported)
 }
 
+function toResampleBatchPayload(exported) {
+  if (!exported) {
+    throw new Error('Resampling returned no data.')
+  }
+
+  const readList = (value) => {
+    if (!value) return []
+    if (typeof value.get === 'function') {
+      const items = []
+      for (let i = 0; i < value.length; i += 1) {
+        items.push(value.get(i))
+      }
+      return items
+    }
+    return Array.isArray(value) ? value : []
+  }
+
+  const parseSpectrum = (item) => {
+    if (item && typeof item.get === 'function') {
+      return {
+        sourceName: String(item.get('source_name')),
+        name: String(item.get('name')),
+        wavelengths: Array.from(item.get('wavelengths') ?? []).map(Number),
+        reflectance: Array.from(item.get('reflectance') ?? []).map(Number),
+      }
+    }
+    return {
+      sourceName: String(item.source_name),
+      name: String(item.name),
+      wavelengths: Array.isArray(item.wavelengths) ? item.wavelengths.map(Number) : [],
+      reflectance: Array.isArray(item.reflectance) ? item.reflectance.map(Number) : [],
+    }
+  }
+
+  const parseFailure = (item) => {
+    if (item && typeof item.get === 'function') {
+      return {
+        sourceName: String(item.get('source_name')),
+        error: String(item.get('error')),
+      }
+    }
+    return {
+      sourceName: String(item.source_name),
+      error: String(item.error),
+    }
+  }
+
+  if (typeof exported.get === 'function') {
+    const payload = {
+      spectra: readList(exported.get('spectra')).map(parseSpectrum),
+      failures: readList(exported.get('failures')).map(parseFailure),
+    }
+    exported.destroy?.()
+    return payload
+  }
+
+  return {
+    spectra: Array.isArray(exported.spectra) ? exported.spectra.map(parseSpectrum) : [],
+    failures: Array.isArray(exported.failures) ? exported.failures.map(parseFailure) : [],
+  }
+}
+
+export async function resamplePythonSelection(pyodide, items, sensor) {
+  const exported = await pyodide.runPythonAsync(
+    `resample_selection_spectra(${JSON.stringify(items)}, ${JSON.stringify(sensor)})`,
+  )
+  return toResampleBatchPayload(exported)
+}
+
 export async function rebuildVirtualSpectraFromRecipes(pyodide, recipes = {}) {
   const mixNames = sortVirtualMixNames(Object.keys(recipes))
   if (!mixNames.length) {

@@ -15,7 +15,14 @@
       "description": "Vegetation spectra measured with laboratory, field, and airborne spectrometers from the USGS Spectroscopy Lab.",
       "file": "usgs_vegetation.fda",
       "default": false
+    },
+    {
+      "id": "ecostress_minerals",
+      "name": "ECOSTRESS Spectral Library — Minerals",
+      "source": "https://speclib.jpl.nasa.gov/",
+      "description": "Laboratory mineral spectra from the JPL ECOSTRESS/ASTER spectral library (VSWIR and TIR), grouped by USGS mineral family.",
+      "file": "ecostress_minerals.fda",
+      "default": true
     }
-
   ]
 }

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { fetchLibraryCatalog, findLibraryById } from '../../app/libraries.js'
+import { normalizeLoadedLibraries } from '../../app/appState.js'
 import { useCoreAppState } from '../../context/useAppState.js'
 import { usePyodide } from '../../context/usePyodide.js'
 import './Library.css'
@@ -93,7 +94,7 @@ export default function Library() {
     setBusyId(id)
     try {
       await loadLibrary(entry)
-      setLibraries([...appState.libraries, id])
+      setLibraries(normalizeLoadedLibraries([...appState.libraries, id], { fallbackToDefault: false }))
       setSelectionSource('loaded')
       setSelectedId(id)
     } catch (err) {
@@ -109,7 +110,12 @@ export default function Library() {
     setBusyId(id)
     try {
       await unloadLibrary(id)
-      setLibraries(appState.libraries.filter((libraryId) => libraryId !== id))
+      setLibraries(
+        normalizeLoadedLibraries(
+          appState.libraries.filter((libraryId) => libraryId !== id),
+          { fallbackToDefault: false },
+        ),
+      )
       setSelectionSource('available')
       setSelectedId(id)
     } catch (err) {

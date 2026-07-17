@@ -25,6 +25,7 @@ import { useCoreAppState } from '../../context/useAppState.js'
 import { useInteraction } from '../../context/useInteraction.js'
 import { usePyodide } from '../../context/usePyodide.js'
 import SpectraPlot, { dataWavelengthExtent, defaultDomainsFromData } from './SpectraPlot.jsx'
+import PlotSaveMenu from '../PlotSaveMenu.jsx'
 import './Spectra.css'
 
 const HULL_TOOLTIP =
@@ -385,6 +386,7 @@ export default function Spectra({ paneIndex, paneState }) {
   ])
 
   const plotBusy = loading || (applyHull && hullLoading)
+  const plotHostRef = useRef(null)
 
   return (
     <div className="widget widget-spectra">
@@ -395,6 +397,15 @@ export default function Spectra({ paneIndex, paneState }) {
       ) : null}
 
       <SpectraPlot
+        hostRef={plotHostRef}
+        overlay={
+          <PlotSaveMenu
+            containerRef={plotHostRef}
+            basename="spectra"
+            className="spectra-save-menu"
+            disabled={plotBusy || !hasVisibleSpectra}
+          />
+        }
         plotData={displayPlotData}
         xDomain={resolvedDomains.xDomain}
         yDomain={resolvedDomains.yDomain}

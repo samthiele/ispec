@@ -499,19 +499,25 @@ export default function SpectraPlot({
   applyHull = false,
   selectedColors = {},
   positionGuideWavelengths = [],
+  hostRef,
+  overlay = null,
 }) {
   const { spectra } = plotData
 
   if (!spectra.length) {
     return (
-      <div className="spectra-empty">
-        Run a search or select spectra to plot reflectance curves.
+      <div className="spectra-plot-host" ref={hostRef}>
+        {overlay}
+        <div className="spectra-empty">
+          Run a search or select spectra to plot reflectance curves.
+        </div>
       </div>
     )
   }
 
   return (
-    <div className="spectra-plot-host">
+    <div className="spectra-plot-host" ref={hostRef}>
+      {overlay}
       <ParentSize debounceTime={10}>
         {({ width, height }) => (
           <SpectraPlotInner

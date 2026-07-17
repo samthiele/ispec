@@ -65,10 +65,36 @@ export function normalizePanes(rawPanes, viewMode) {
   })
 }
 
+export function normalizeLoadedLibraries(raw, { fallbackToDefault = false } = {}) {
+  if (!Array.isArray(raw)) {
+    return fallbackToDefault ? [DEFAULT_LIBRARY_ID] : []
+  }
+  const ids = [...new Set(raw.map((id) => String(id).trim()).filter(Boolean))]
+  if (ids.length === 0 && fallbackToDefault) {
+    return [DEFAULT_LIBRARY_ID]
+  }
+  return ids
+}
+
+export function loadedLibrariesEqual(a, b) {
+  const left = normalizeLoadedLibraries(a, { fallbackToDefault: false })
+  const right = normalizeLoadedLibraries(b, { fallbackToDefault: false })
+  return left.length === right.length && left.every((id, index) => id === right[index])
+}
+
+function resolveSharedLibraries(rawLibraries, fallbackLibraries) {
+  if (rawLibraries === undefined) {
+    return fallbackLibraries
+  }
+  const libraries = normalizeLoadedLibraries(rawLibraries, { fallbackToDefault: false })
+  // Empty arrays in share links are treated as missing (legacy bug) and fall back to defaults.
+  return libraries.length > 0 ? libraries : fallbackLibraries
+}
+
 export function createDefaultAppState(viewMode = defaultViewMode()) {
   return {
     v: APP_STATE_VERSION,
-    libraries: [DEFAULT_LIBRARY_ID],
+    libraries: [],
     query: '',
     slice: [0, 0],
     confidence: DEFAULT_CONFIDENCE,
@@ -91,7 +117,7 @@ export function normalizeAppState(raw) {
     ...base,
     ...raw,
     v: APP_STATE_VERSION,
-    libraries: Array.isArray(raw?.libraries) ? raw.libraries : base.libraries,
+    libraries: resolveSharedLibraries(raw?.libraries, base.libraries),
     query: typeof raw?.query === 'string' ? raw.query : base.query,
     slice: Array.isArray(raw?.slice) && raw.slice.length === 2 ? raw.slice : base.slice,
     confidence: Number.isFinite(Number(raw?.confidence)) ? Number(raw.confidence) : base.confidence,
@@ -116,9 +142,10 @@ function shareablePaneState(type, state) {
 }
 
 export function toShareableState(appState) {
+  const libraries = normalizeLoadedLibraries(appState.libraries, { fallbackToDefault: false })
   return {
     v: appState.v,
-    libraries: appState.libraries,
+    ...(libraries.length > 0 ? { libraries } : {}),
     query: appState.query,
     slice: appState.slice,
     confidence: appState.confidence,

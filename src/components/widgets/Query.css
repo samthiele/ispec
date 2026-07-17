@@ -126,6 +126,15 @@
   overflow: hidden;
 }
 
+.query-selected-panel:has(.sensor-resample-menu--open) {
+  overflow: visible;
+}
+
+.query-selected-panel:has(.sensor-resample-menu--open) .query-results-header {
+  position: relative;
+  z-index: 6;
+}
+
 .query-selected-panel .query-results {
   flex: none;
   min-height: 0;

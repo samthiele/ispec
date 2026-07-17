@@ -4,6 +4,7 @@ import {
   mixPercentFor,
   parseSpectrumName,
   pruneSelectionMeta,
+  buildLookupMap,
   selectedColorFor,
   setSelectionColor,
   setSelectionGroup,
@@ -14,8 +15,10 @@ import {
   createPythonWeightedMixture,
   downloadSelectedSpectra,
   removePythonVirtualSpectrum,
+  resamplePythonSelection,
   syncPythonVirtualSpectra,
 } from '../../app/selectionSync.js'
+import { buildResampleOutputNames, resampleSourceSelection } from '../../app/satelliteResample.js'
 import {
   isVirtualSpectrum,
   nextMixSpectrumName,
@@ -39,6 +42,7 @@ import { useLongPress } from '../../app/useLongPress.js'
 import { useCoreAppState } from '../../context/useAppState.js'
 import { useInteraction } from '../../context/useInteraction.js'
 import { usePyodide } from '../../context/usePyodide.js'
+import SensorResampleMenu from '../SensorResampleMenu.jsx'
 import './Query.css'
 
 const COLOR_COMMIT_MS = 250
@@ -52,6 +56,8 @@ const DOWNLOAD_TOOLTIP =
   'Download selected spectra as .txt files. Caution: this downloads compressed (denoised) spectra, so will not exactly match those in the original library.'
 const MIX_TOOLTIP =
   'Create a virtual mixture from selected spectra using their Mix % weights (at least two with weight > 0).'
+const RESAMPLE_TOOLTIP =
+  'Resample selected spectra onto a satellite sensor bandpass and add them as new virtual spectra.'
 
 function parseMixPercent(value) {
   const trimmed = String(value).trim()
@@ -503,6 +509,69 @@ export default function Query() {
     }
   }
 
+  async function handleResampleSelected(sensor) {
+    if (status !== 'ready' || busy || !pyodide || selection.length === 0) return
+
+    const sources = resampleSourceSelection(selection)
+    if (sources.length === 0) {
+      setError('No library or mixture spectra to resample. Already-resampled virtual spectra are skipped.')
+      return
+    }
+
+    const mappings = buildResampleOutputNames(sources, sensor, virtualSpectra)
+    const lookupMap = buildLookupMap(sources, selectionMeta)
+    const items = mappings.map(({ sourceName, outputName }) => {
+      const item = { source_name: sourceName, output_name: outputName }
+      if (lookupMap[sourceName]) {
+        item.lookup = lookupMap[sourceName]
+      }
+      return item
+    })
+
+    setBusy(true)
+    setError('')
+
+    try {
+      const result = await runQueued(async () => {
+        const batch = await resamplePythonSelection(pyodide, items, sensor)
+        const nextVirtual = { ...virtualSpectra }
+        for (const spectrum of batch.spectra) {
+          nextVirtual[spectrum.name] = {
+            wavelengths: spectrum.wavelengths,
+            reflectance: spectrum.reflectance,
+          }
+        }
+        await syncPythonVirtualSpectra(pyodide, nextVirtual)
+
+        let nextSelection = [...selection]
+        for (const spectrum of batch.spectra) {
+          if (!nextSelection.includes(spectrum.name)) {
+            nextSelection = await addPythonSelection(pyodide, spectrum.name)
+          }
+        }
+
+        return { nextVirtual, nextSelection, failures: batch.failures }
+      })
+
+      setQueryState({
+        selection: result.nextSelection,
+        virtualSpectra: result.nextVirtual,
+      })
+
+      if (result.failures.length) {
+        setError(
+          result.failures
+            .map(({ sourceName, error }) => `${sourceName}: ${error}`)
+            .join('\n'),
+        )
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setBusy(false)
+    }
+  }
+
   async function handleMixSelected() {
     if (status !== 'ready' || busy || !pyodide || selection.length === 0) return
 
@@ -643,6 +712,13 @@ export default function Query() {
                 >
                   Mix
                 </button>
+              </span>
+              <span data-tooltip={RESAMPLE_TOOLTIP}>
+                <SensorResampleMenu
+                  disabled={status !== 'ready' || selection.length === 0}
+                  busy={busy}
+                  onResample={handleResampleSelected}
+                />
               </span>
             </div>
           </div>

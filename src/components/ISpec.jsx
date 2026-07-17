@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
-import { normalizeAppState } from '../app/appState.js'
+import { normalizeAppState, normalizeLoadedLibraries, loadedLibrariesEqual } from '../app/appState.js'
+import { getPythonLoadedLibraryIds } from '../app/librarySync.js'
 import { copyShareUrl } from '../app/shareState.js'
 import { useCoreAppState } from '../context/useAppState.js'
 import { PyodideProvider } from '../context/PyodideProvider.jsx'
@@ -17,8 +18,8 @@ const LAYOUTS = {
 }
 
 function ISpecShell({ shareNotice, onShareNotice }) {
-  const { appState, setViewMode, hydratedFromHash } = useCoreAppState()
-  const { status, loadingMessage, error } = usePyodide()
+  const { appState, setViewMode, setLibraries, hydratedFromHash } = useCoreAppState()
+  const { status, loadingMessage, error, pyodide, runQueued } = usePyodide()
   const [viewModeLocked, setViewModeLocked] = useState(hydratedFromHash)
   const Layout = LAYOUTS[appState.viewMode] ?? TriLayout
 
@@ -36,7 +37,24 @@ function ISpecShell({ shareNotice, onShareNotice }) {
 
   async function handleShare() {
     try {
-      await copyShareUrl(appState)
+      let libraries = normalizeLoadedLibraries(appState.libraries, { fallbackToDefault: false })
+      if (pyodide) {
+        const fromPython = normalizeLoadedLibraries(
+          await runQueued(() => getPythonLoadedLibraryIds(pyodide)),
+          { fallbackToDefault: false },
+        )
+        if (fromPython.length > 0) {
+          libraries = fromPython
+        }
+      }
+      if (libraries.length === 0) {
+        onShareNotice('No libraries loaded to share')
+        return
+      }
+      if (!loadedLibrariesEqual(libraries, appState.libraries)) {
+        setLibraries(libraries)
+      }
+      await copyShareUrl({ ...appState, libraries })
       onShareNotice('Share link copied to clipboard')
     } catch {
       onShareNotice('Could not copy share link')
