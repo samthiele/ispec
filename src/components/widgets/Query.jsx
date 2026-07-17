@@ -595,6 +595,7 @@ export default function Query() {
   }
 
   const mixComponentCount = buildMixComponents(selection, selectionMeta, resolvedMixPercents()).length
+  const [activeTab, setActiveTab] = useState('results')
 
   const rangeLabel =
     total > 0
@@ -660,142 +661,180 @@ export default function Query() {
 
       <div className="query-panels">
         <div
-          className={`query-results-panel query-selected-panel${selection.length === 0 ? ' query-selected-panel--empty' : ''}`}
+          className={`query-tab-panel${activeTab === 'selected' ? ' query-tab-panel--selected' : ''}`}
         >
-          <div className="query-results-header">
-            <div className="query-results-header-main">
-              <h3 className="query-results-title">Selected</h3>
-              <span className="query-results-range">
+          <div className="query-tabs" role="tablist" aria-label="Query results">
+            <button
+              type="button"
+              id="query-tab-results"
+              role="tab"
+              className={`query-tab${activeTab === 'results' ? ' query-tab--active' : ''}`}
+              aria-selected={activeTab === 'results'}
+              aria-controls="query-tabpanel-results"
+              onClick={() => setActiveTab('results')}
+            >
+              <span className="query-tab-label">Results</span>
+              <span className="query-tab-meta">{rangeLabel}</span>
+            </button>
+            <button
+              type="button"
+              id="query-tab-selected"
+              role="tab"
+              className={`query-tab${activeTab === 'selected' ? ' query-tab--active' : ''}`}
+              aria-selected={activeTab === 'selected'}
+              aria-controls="query-tabpanel-selected"
+              onClick={() => setActiveTab('selected')}
+            >
+              <span className="query-tab-label">Selected</span>
+              <span className="query-tab-meta">
                 {selection.length === 0 ? 'None' : `${selection.length} selected`}
               </span>
+            </button>
+          </div>
+
+          <div
+            id="query-tabpanel-results"
+            role="tabpanel"
+            aria-labelledby="query-tab-results"
+            hidden={activeTab !== 'results'}
+            className="query-tab-content"
+          >
+            <div className="query-results-panel">
+              <ul className="query-results" role="list">
+                {visibleResults.length === 0 ? (
+                  <li className="query-results-empty">
+                    {appState.query ? 'No matching spectra.' : 'Run a search to see results.'}
+                  </li>
+                ) : (
+                  visibleResults.map(({ rank, name, score }) => {
+                    const isSelected = selectedSet.has(name)
+                    const isHovered = hoveredSpectrum === name
+                    const nameStyle = resultNameStyle(
+                      {
+                        rank,
+                        score,
+                        selected: isSelected,
+                        hovered: isHovered,
+                        color: isSelected ? effectiveColor(name) : undefined,
+                      },
+                      resultStyleContext.ranks,
+                      resultStyleContext.scores,
+                    )
+
+                    return (
+                      <QueryResultItem
+                        key={`${rank}-${name}`}
+                        rank={rank}
+                        name={name}
+                        score={score}
+                        isSelected={isSelected}
+                        isHovered={isHovered}
+                        nameStyle={nameStyle}
+                        onSelect={handleSelectResult}
+                        onHover={setHoveredSpectrum}
+                      />
+                    )
+                  })
+                )}
+              </ul>
             </div>
-            <div className="query-selected-actions">
-              <span data-tooltip={DOWNLOAD_TOOLTIP}>
-                <button
-                  type="button"
-                  className="query-selected-action"
-                  onClick={handleDownloadSelected}
-                  disabled={busy || status !== 'ready' || selection.length === 0}
-                >
-                  Download
-                </button>
-              </span>
-              <span data-tooltip={MIX_TOOLTIP}>
-                <button
-                  type="button"
-                  className="query-selected-action"
-                  onClick={handleMixSelected}
-                  disabled={busy || status !== 'ready' || mixComponentCount < 2}
-                >
-                  Mix
-                </button>
-              </span>
-              <span data-tooltip={RESAMPLE_TOOLTIP}>
-                <SensorResampleMenu
-                  disabled={status !== 'ready' || selection.length === 0}
-                  busy={busy}
-                  onResample={handleResampleSelected}
-                />
-              </span>
+
+            <div className="query-nav">
+              <button
+                type="button"
+                className="query-nav-button"
+                onClick={handlePrev}
+                disabled={!canGoPrev || busy || status !== 'ready'}
+              >
+                Prev
+              </button>
+              <button
+                type="button"
+                className="query-nav-button"
+                onClick={handleClear}
+                disabled={busy || status !== 'ready' || (!appState.query && total === 0)}
+              >
+                Clear
+              </button>
+              <button
+                type="button"
+                className="query-nav-button"
+                onClick={handleNext}
+                disabled={!canGoNext || busy || status !== 'ready'}
+              >
+                Next
+              </button>
             </div>
           </div>
 
-          <ul className="query-results" role="list">
-            {selection.length === 0 ? (
-              <li className="query-results-empty">Double-click or long-press a result to select it.</li>
-            ) : (
-              selection.map((name) => (
-                <SelectedSpectrumItem
-                  key={name}
-                  canonical={name}
-                  color={effectiveColor(name)}
-                  mixPercent={effectiveMixPercent(name)}
-                  selectionMeta={selectionMeta}
-                  hoveredSpectrum={hoveredSpectrum}
-                  onHover={setHoveredSpectrum}
-                  onDeselect={handleDeselect}
-                  onGroupChange={handleGroupChange}
-                  onColorChange={handleColorChange}
-                  onColorCommit={handleColorCommit}
-                  onMixPercentChange={handleMixPercentChange}
-                  onMixPercentCommit={handleMixPercentCommit}
-                />
-              ))
-            )}
-          </ul>
-        </div>
-
-        <div className="query-results-group">
-          <div className="query-results-panel">
-            <div className="query-results-header">
-              <h3 className="query-results-title">Results</h3>
-              <span className="query-results-range">{rangeLabel}</span>
-            </div>
-
-            <ul className="query-results" role="list">
-              {visibleResults.length === 0 ? (
-                <li className="query-results-empty">
-                  {appState.query ? 'No matching spectra.' : 'Run a search to see results.'}
-                </li>
-              ) : (
-                visibleResults.map(({ rank, name, score }) => {
-                  const isSelected = selectedSet.has(name)
-                  const isHovered = hoveredSpectrum === name
-                  const nameStyle = resultNameStyle(
-                    {
-                      rank,
-                      score,
-                      selected: isSelected,
-                      hovered: isHovered,
-                      color: isSelected ? effectiveColor(name) : undefined,
-                    },
-                    resultStyleContext.ranks,
-                    resultStyleContext.scores,
-                  )
-
-                  return (
-                    <QueryResultItem
-                      key={`${rank}-${name}`}
-                      rank={rank}
-                      name={name}
-                      score={score}
-                      isSelected={isSelected}
-                      isHovered={isHovered}
-                      nameStyle={nameStyle}
-                      onSelect={handleSelectResult}
-                      onHover={setHoveredSpectrum}
+          <div
+            id="query-tabpanel-selected"
+            role="tabpanel"
+            aria-labelledby="query-tab-selected"
+            hidden={activeTab !== 'selected'}
+            className="query-tab-content query-tab-content--selected"
+          >
+            <div
+              className={`query-results-panel query-selected-panel${selection.length === 0 ? ' query-selected-panel--empty' : ''}`}
+            >
+              <div className="query-results-header">
+                <div className="query-selected-actions">
+                  <span data-tooltip={DOWNLOAD_TOOLTIP}>
+                    <button
+                      type="button"
+                      className="query-selected-action"
+                      onClick={handleDownloadSelected}
+                      disabled={busy || status !== 'ready' || selection.length === 0}
+                    >
+                      Download
+                    </button>
+                  </span>
+                  <span data-tooltip={MIX_TOOLTIP}>
+                    <button
+                      type="button"
+                      className="query-selected-action"
+                      onClick={handleMixSelected}
+                      disabled={busy || status !== 'ready' || mixComponentCount < 2}
+                    >
+                      Mix
+                    </button>
+                  </span>
+                  <span data-tooltip={RESAMPLE_TOOLTIP}>
+                    <SensorResampleMenu
+                      disabled={status !== 'ready' || selection.length === 0}
+                      busy={busy}
+                      onResample={handleResampleSelected}
                     />
-                  )
-                })
-              )}
-            </ul>
-          </div>
+                  </span>
+                </div>
+              </div>
 
-          <div className="query-nav">
-            <button
-              type="button"
-              className="query-nav-button"
-              onClick={handlePrev}
-              disabled={!canGoPrev || busy || status !== 'ready'}
-            >
-              Prev
-            </button>
-            <button
-              type="button"
-              className="query-nav-button"
-              onClick={handleClear}
-              disabled={busy || status !== 'ready' || (!appState.query && total === 0)}
-            >
-              Clear
-            </button>
-            <button
-              type="button"
-              className="query-nav-button"
-              onClick={handleNext}
-              disabled={!canGoNext || busy || status !== 'ready'}
-            >
-              Next
-            </button>
+              <ul className="query-results" role="list">
+                {selection.length === 0 ? (
+                  <li className="query-results-empty">
+                    Double-click or long-press a result to select it.
+                  </li>
+                ) : (
+                  selection.map((name) => (
+                    <SelectedSpectrumItem
+                      key={name}
+                      canonical={name}
+                      color={effectiveColor(name)}
+                      mixPercent={effectiveMixPercent(name)}
+                      selectionMeta={selectionMeta}
+                      hoveredSpectrum={hoveredSpectrum}
+                      onHover={setHoveredSpectrum}
+                      onDeselect={handleDeselect}
+                      onGroupChange={handleGroupChange}
+                      onColorChange={handleColorChange}
+                      onColorCommit={handleColorCommit}
+                      onMixPercentChange={handleMixPercentChange}
+                      onMixPercentCommit={handleMixPercentCommit}
+                    />
+                  ))
+                )}
+              </ul>
+            </div>
           </div>
         </div>
       </div>

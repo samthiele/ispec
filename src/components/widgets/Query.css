@@ -7,8 +7,6 @@
   padding: 0.5rem;
   --query-row-height: 2.15rem;
   --query-selected-row-height: 6.2rem;
-  --query-selected-max-rows: 1.5;
-  --query-panel-header-height: 2.1rem;
   --query-results-min-rows: 5;
 }
 
@@ -90,20 +88,11 @@
 .query-panels {
   display: flex;
   flex-direction: column;
-  gap: 0.65rem;
   flex: 1;
   min-height: 0;
 }
 
-.query-results-group {
-  display: flex;
-  flex-direction: column;
-  gap: 0.45rem;
-  flex: 1;
-  min-height: 0;
-}
-
-.query-results-panel {
+.query-tab-panel {
   display: flex;
   flex-direction: column;
   flex: 1;
@@ -111,50 +100,126 @@
   border: 1px solid var(--border-color);
   border-radius: 4px;
   background: #121316;
-}
-
-.query-selected-panel {
-  flex: 0 0 auto;
-}
-
-.query-selected-panel:not(.query-selected-panel--empty) {
-  max-height: calc(
-    var(--query-panel-header-height)
-    + var(--query-selected-row-height) * var(--query-selected-max-rows)
-    + 0.75rem
-  );
   overflow: hidden;
 }
 
-.query-selected-panel:has(.sensor-resample-menu--open) {
+.query-tab-panel:has(.sensor-resample-menu--open) {
   overflow: visible;
 }
 
-.query-selected-panel:has(.sensor-resample-menu--open) .query-results-header {
+.query-tabs {
+  display: flex;
+  flex-shrink: 0;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.query-tab {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  min-width: 0;
+  padding: 0.45rem 0.55rem;
+  border: none;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+  background: transparent;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.query-tab:hover:not(.query-tab--active) {
+  color: var(--text-color);
+  background: #1a1b1f;
+}
+
+.query-tab--active {
+  color: var(--text-color);
+  border-bottom-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 6%, #121316);
+}
+
+.query-tab-label {
+  flex-shrink: 0;
+}
+
+.query-tab-meta {
+  color: var(--text-muted);
+  font-size: 0.68rem;
+  font-weight: 400;
+  letter-spacing: normal;
+  text-transform: none;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.query-tab--active .query-tab-meta {
+  color: color-mix(in srgb, var(--text-color) 70%, var(--text-muted));
+}
+
+.query-tab-content {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  gap: 0.45rem;
+  padding: 0.45rem;
+}
+
+.query-tab-content[hidden] {
+  display: none !important;
+}
+
+.query-tab-content > .query-results-panel {
+  flex: 1;
+  min-height: 0;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+}
+
+.query-tab-content--selected > .query-selected-panel {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+
+.query-tab-content--selected .query-results-header {
+  flex-shrink: 0;
+  justify-content: flex-end;
+  padding: 0 0 0.4rem;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.query-tab-panel--selected:has(.sensor-resample-menu--open) .query-results-header {
   position: relative;
   z-index: 6;
 }
 
-.query-selected-panel .query-results {
-  flex: none;
+.bi-layout .query-tab-content:not([hidden]) > .query-results-panel {
+  min-height: calc(var(--query-row-height) * var(--query-results-min-rows));
+}
+
+.query-results-panel {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
   min-height: 0;
 }
 
-.query-selected-panel--empty .query-results {
-  overflow: visible;
-}
-
-.query-selected-panel:not(.query-selected-panel--empty) .query-results {
-  max-height: calc(var(--query-selected-row-height) * var(--query-selected-max-rows) + 0.5rem);
+.query-selected-panel .query-results {
+  flex: 1;
+  min-height: 0;
   overflow-y: auto;
   overscroll-behavior: contain;
-}
-
-.bi-layout .query-results-group > .query-results-panel {
-  flex: 1;
-  min-height: calc(
-    var(--query-row-height) * var(--query-results-min-rows) + var(--query-panel-header-height)
-  );
 }
 
 .query-results-header {
@@ -416,6 +481,7 @@
 .query-nav {
   display: flex;
   gap: 0.45rem;
+  flex-shrink: 0;
 }
 
 .query-nav-button {

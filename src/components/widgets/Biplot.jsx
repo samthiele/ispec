@@ -384,18 +384,13 @@ export default function Biplot({ paneIndex, paneState }) {
   const [draftConfig, setDraftConfig] = useState(savedConfig)
   const [plotConfig, setPlotConfig] = useState(savedConfig)
   const savedBiplotConfig = hasSavedBiplotPaneState(paneState)
-  const restoredPlotRef = useRef(false)
   const plotHostRef = useRef(null)
+  const lastAutoPlotKeyRef = useRef('')
   const [plotData, setPlotData] = useState({ points: [], errors: [] })
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [hasPlotted, setHasPlotted] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(() => !savedBiplotConfig)
-
-  useEffect(() => {
-    setDraftConfig(savedConfig)
-    setPlotConfig(savedConfig)
-  }, [savedConfig])
 
   const pageSlice = useMemo(() => {
     const [start, end] = appState.slice
@@ -485,60 +480,55 @@ export default function Biplot({ paneIndex, paneState }) {
     }
   }, [biplotCrosshair.active, setBiplotCrosshair])
 
-  const runPlot = useCallback(async () => {
-    if (status !== 'ready' || !pyodide || loading) return false
-    if (!draftConfig.xExpr.trim() || !draftConfig.yExpr.trim()) {
-      setError('Both X and Y attribute expressions are required.')
-      setPlotData({ points: [], errors: [] })
-      setHasPlotted(false)
-      return false
-    }
-
-    setLoading(true)
-    setError('')
-
-    try {
-      const data = await runQueued(() =>
-        exportBiplotData(pyodide, {
-          pageStart: pageSlice[0],
-          pageEnd: pageSlice[1],
-          lookupMap,
-          xExpr: draftConfig.xExpr,
-          yExpr: draftConfig.yExpr,
-          width: parseNumber(draftConfig.width, 50),
-          colorExpr: draftConfig.colorExpr,
-          opacityExpr: draftConfig.opacityExpr,
-          sizeExpr: draftConfig.sizeExpr,
-        }),
-      )
-
-      setPlotData(data)
-      setPlotConfig(draftConfig)
-      setHasPlotted(true)
-      updatePane(paneIndex, { state: compactBiplotPaneState(draftConfig) })
-      if (data.errors.length) {
-        setError(`${data.errors.length} spectra could not be evaluated.`)
+  const runPlot = useCallback(
+    async (configOverride) => {
+      const config = configOverride ?? draftConfig
+      if (status !== 'ready' || !pyodide) return false
+      if (!config.xExpr.trim() || !config.yExpr.trim()) {
+        setError('Both X and Y attribute expressions are required.')
+        setPlotData({ points: [], errors: [] })
+        setHasPlotted(false)
+        return false
       }
-      return true
-    } catch (err) {
-      setPlotData({ points: [], errors: [] })
-      setHasPlotted(false)
-      setError(err instanceof Error ? err.message : String(err))
-      return false
-    } finally {
-      setLoading(false)
-    }
-  }, [
-    draftConfig,
-    loading,
-    lookupMap,
-    pageSlice,
-    paneIndex,
-    pyodide,
-    runQueued,
-    status,
-    updatePane,
-  ])
+
+      setLoading(true)
+      setError('')
+
+      try {
+        const data = await runQueued(() =>
+          exportBiplotData(pyodide, {
+            pageStart: pageSlice[0],
+            pageEnd: pageSlice[1],
+            lookupMap,
+            xExpr: config.xExpr,
+            yExpr: config.yExpr,
+            width: parseNumber(config.width, 50),
+            colorExpr: config.colorExpr,
+            opacityExpr: config.opacityExpr,
+            sizeExpr: config.sizeExpr,
+          }),
+        )
+
+        setPlotData(data)
+        setDraftConfig(config)
+        setPlotConfig(config)
+        setHasPlotted(true)
+        updatePane(paneIndex, { state: compactBiplotPaneState(config) })
+        if (data.errors.length) {
+          setError(`${data.errors.length} spectra could not be evaluated.`)
+        }
+        return true
+      } catch (err) {
+        setPlotData({ points: [], errors: [] })
+        setHasPlotted(false)
+        setError(err instanceof Error ? err.message : String(err))
+        return false
+      } finally {
+        setLoading(false)
+      }
+    },
+    [draftConfig, lookupMap, pageSlice, paneIndex, pyodide, runQueued, status, updatePane],
+  )
 
   const handleUpdate = useCallback(async () => {
     const plotted = await runPlot()
@@ -547,21 +537,27 @@ export default function Biplot({ paneIndex, paneState }) {
     }
   }, [runPlot])
 
-  useEffect(() => {
-    if (!savedBiplotConfig || restoredPlotRef.current) return
-    if (status !== 'ready' || !pyodide) return
-    if (!appState.query.trim() && !appState.selection.length) return
+  const autoPlotKey = useMemo(
+    () =>
+      JSON.stringify({
+        savedConfig,
+        query: appState.query,
+        selection: appState.selection,
+        pageSlice,
+        lookupMap,
+      }),
+    [appState.query, appState.selection, lookupMap, pageSlice, savedConfig],
+  )
 
-    restoredPlotRef.current = true
-    void runPlot()
-  }, [
-    appState.query,
-    appState.selection.length,
-    pyodide,
-    runPlot,
-    savedBiplotConfig,
-    status,
-  ])
+  useEffect(() => {
+    if (status !== 'ready' || !pyodide) return undefined
+    if (!appState.query.trim() && !appState.selection.length) return undefined
+    if (!savedConfig.xExpr.trim() || !savedConfig.yExpr.trim()) return undefined
+    if (autoPlotKey === lastAutoPlotKeyRef.current) return undefined
+
+    lastAutoPlotKeyRef.current = autoPlotKey
+    void runPlot(savedConfig)
+  }, [autoPlotKey, pyodide, runPlot, savedConfig, status, appState.query, appState.selection.length])
 
   const showPlot = hasPlotted
   const controlsDisabled = status !== 'ready' || loading

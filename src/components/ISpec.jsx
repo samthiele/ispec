@@ -4,6 +4,7 @@ import { getPythonLoadedLibraryIds } from '../app/librarySync.js'
 import { copyShareUrl } from '../app/shareState.js'
 import { useCoreAppState } from '../context/useAppState.js'
 import { PyodideProvider } from '../context/PyodideProvider.jsx'
+import { LlmChatProvider } from '../context/LlmChatProvider.jsx'
 import { usePyodide } from '../context/usePyodide.js'
 import BiLayout from './BiLayout.jsx'
 import LoadingScreen from './LoadingScreen.jsx'
@@ -136,7 +137,9 @@ export default function ISpec({ bootstrapAppState, ...props }) {
 
   return (
     <PyodideProvider initialAppState={pyodideBootstrapRef.current}>
-      <ISpecShell {...props} />
+      <LlmChatProvider>
+        <ISpecShell {...props} />
+      </LlmChatProvider>
     </PyodideProvider>
   )
 }

@@ -16,6 +16,7 @@ import {
 import { buildLookupMap, selectionGroupDep } from '../../app/selectionMeta.js'
 import { buildShareUrl } from '../../app/shareState.js'
 import { useCoreAppState } from '../../context/useAppState.js'
+import { useLlmChat } from '../../context/useLlmChat.js'
 import { usePyodide } from '../../context/usePyodide.js'
 import LlmMarkdown from './LlmMarkdown.jsx'
 import './LLM.css'
@@ -152,6 +153,7 @@ function StateProposalCard({
 
 export default function LLM() {
   const { appState, searchResults } = useCoreAppState()
+  const { messages, setMessages } = useLlmChat()
   const { status, pyodide, runQueued, applySharedState } = usePyodide()
   const [apiKey, setApiKeyState] = useState(() => getGeminiApiKey())
   const [model, setModelState] = useState(() => getGeminiModel())
@@ -161,7 +163,6 @@ export default function LLM() {
   const [skillError, setSkillError] = useState(null)
   const [spectralSummary, setSpectralSummary] = useState('')
   const [featureError, setFeatureError] = useState(null)
-  const [messages, setMessages] = useState([])
   const [input, setInput] = useState('')
   const [busy, setBusy] = useState(false)
   const [chatError, setChatError] = useState(null)

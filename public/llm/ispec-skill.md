@@ -114,10 +114,16 @@ Use a fenced JSON block tagged `ispec-state`.
 
 **Biplot pane state:** `xExpr`, `yExpr`, `width`, `colorExpr`, `colorMin`, `colorMax`, `opacityExpr`, `opacityMin`, `opacityMax`, `sizeExpr`, `sizeMin`, `sizeMax`
 
-**Biplot feature expressions:** append **P** or **D** to a wavelength or range — e.g. `2200P`, `2160-2200P`, `^9500P`, `2330-2350D`.
+**Biplot feature expressions:** append **P** or **D** to a wavelength or range — e.g. `2200P`, `2160-2200P`, `^8000P`, `^5500-13000P`, `2330-2350D`.
+
+**Single wavelength vs range (how the band is defined):**
+- **Single wavelength** (e.g. `2200P`, `^8000P`) — the feature is sought within **± width / 2** nm of that wavelength. `width` is the biplot pane setting **± width (nm)** (default 50 → search 8000 ± 25 nm for `^8000P`). The **strongest** absorption minimum or reflectance maximum in that window is returned.
+- **Explicit range** (e.g. `2160-2200P`, `^5500-13000P`, `^5500-13000D`) — the feature is sought across the **full range**. The `width` setting is **ignored**. The strongest minimum/maximum anywhere between the endpoints is returned.
+
+**Metrics and prefixes:**
 - **P (position)** — wavelength (nm) of the strongest feature in the band. Use **P on x/y axes** when comparing *where* absorptions or peaks occur (composition shifts, crystallinity, mixture separation by band position).
 - **D (depth)** — band depth or peak height (strength). Use **D** for colour, opacity, or size when encoding *how strong* a feature is.
-- **^** prefix — search for reflectance **maxima** (peaks) instead of absorption minima, e.g. `^9500P` for a LWIR reststrahlen peak position.
+- **^** prefix — search for reflectance **maxima** (peaks) instead of absorption minima, e.g. `^8000P` for a LWIR peak near 8000 nm, or `^5500-13000P` for the dominant reststrahlen/Christiansen peak anywhere in the LWIR window.
 - Prefer **P over D** for default x/y axes unless the user explicitly asks about band strength or depth.
 
 **Spectra pane state:** `xDomain`, `yDomain`, `activeBand`, `applyHull`
@@ -194,13 +200,41 @@ Separate carbonate vs iron-oxide search results by **position** of diagnostic ba
       "state": {
         "xExpr": "2340P",
         "yExpr": "^900P",
-        "colorExpr": "2340D"
+        "width": 50
       }
     },
     { "type": "llm", "state": {} }
   ]
 }
 ```
+
+Note: `^900P` uses the ± width window (here ±25 nm around 900 nm). `2340P` does the same around 2340 nm.
+
+Map a **felsic–mafic index** from LWIR reflectance peak position — search the broad reststrahlen/Christiansen region, then biplot peak **position** between 5500 and 13000 nm (shorter λ ≈ more felsic; longer λ ≈ more mafic):
+
+```ispec-state
+{
+  "query": "olivine | pyroxene | feldspar | quartz",
+  "viewMode": "quad",
+  "libraries" : "ecostress_minerals",
+  "panes": [
+    { "type": "query", "state": {} },
+    { "type": "spectra", "state": {} },
+    {
+      "type": "biplot",
+      "state": {
+        "xExpr": "^5500-13000P",
+        "yExpr": "^5500-13000D"
+      }
+    },
+    { "type": "llm", "state": {} }
+  ]
+}
+```
+
+Note: `^5500-13000P` finds the strongest reflectance **peak position** anywhere in 5500–13000 nm — `width` is ignored for ranged expressions. Compare with `^8000P`, which would only search ± width/2 around 8000 nm.
+
+Note: the ecostress_minerals library is favoured here over USGS as it has more LWIR spectra. 
 
 Define a virtual mixture from selected endmembers:
 
