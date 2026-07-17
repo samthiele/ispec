@@ -2,7 +2,13 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { toShareableState } from '../../app/appState.js'
 import { clearGeminiApiKey, getGeminiApiKey, setGeminiApiKey } from '../../app/geminiApiKey.js'
 import { createGeminiChat, sendGeminiMessage } from '../../app/geminiClient.js'
-import { GEMINI_MODELS, geminiModelLabel, getGeminiModel, setGeminiModel } from '../../app/geminiModels.js'
+import {
+  geminiModelLabel,
+  getGeminiModel,
+  loadGeminiModelsCatalog,
+  resolveGeminiModel,
+  setGeminiModel,
+} from '../../app/geminiModels.js'
 import { buildLlmSpectralContext } from '../../app/llmFeatures.js'
 import {
   exportSelectionSpectralFeatures,
@@ -161,6 +167,8 @@ export default function LLM() {
   const [keyDraft, setKeyDraft] = useState('')
   const [skillText, setSkillText] = useState('')
   const [skillError, setSkillError] = useState(null)
+  const [modelsCatalog, setModelsCatalog] = useState(null)
+  const [modelsError, setModelsError] = useState(null)
   const [spectralSummary, setSpectralSummary] = useState('')
   const [featureError, setFeatureError] = useState(null)
   const [input, setInput] = useState('')
@@ -203,6 +211,30 @@ export default function LLM() {
       .catch((error) => {
         if (!cancelled) {
           setSkillError(error instanceof Error ? error.message : String(error))
+        }
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  useEffect(() => {
+    let cancelled = false
+    loadGeminiModelsCatalog()
+      .then((catalog) => {
+        if (cancelled) return
+        setModelsCatalog(catalog)
+        setModelsError(null)
+        const stored = typeof window !== 'undefined' ? localStorage.getItem('ispec.geminiModel') : null
+        const resolved = resolveGeminiModel(stored, catalog)
+        setModelState(resolved)
+        if (stored !== resolved) {
+          setGeminiModel(resolved, catalog)
+        }
+      })
+      .catch((error) => {
+        if (!cancelled) {
+          setModelsError(error instanceof Error ? error.message : String(error))
         }
       })
     return () => {
@@ -301,12 +333,17 @@ export default function LLM() {
     chatRef.current = null
   }, [])
 
-  const handleModelChange = useCallback((event) => {
-    const nextModel = event.target.value
-    setGeminiModel(nextModel)
-    setModelState(nextModel)
-    setChatError(null)
-  }, [])
+  const handleModelChange = useCallback(
+    (event) => {
+      const nextModel = event.target.value
+      if (modelsCatalog) {
+        setGeminiModel(nextModel, modelsCatalog)
+      }
+      setModelState(nextModel)
+      setChatError(null)
+    },
+    [modelsCatalog],
+  )
 
   const startNewChat = useCallback(() => {
     setMessages([])
@@ -413,6 +450,7 @@ export default function LLM() {
   }
 
   const isDisabled = status !== 'ready' || busy
+  const availableModels = modelsCatalog?.models ?? []
 
   return (
     <div className="widget widget-llm">
@@ -431,10 +469,10 @@ export default function LLM() {
               className="llm-model-select"
               value={model}
               onChange={handleModelChange}
-              disabled={busy}
-              title={GEMINI_MODELS.find(({ id }) => id === model)?.hint}
+              disabled={busy || availableModels.length === 0}
+              title={availableModels.find(({ id }) => id === model)?.hint}
             >
-              {GEMINI_MODELS.map(({ id, label, hint }) => (
+              {availableModels.map(({ id, label, hint }) => (
                 <option key={id} value={id} title={hint}>
                   {label}
                 </option>
@@ -455,6 +493,7 @@ export default function LLM() {
         </div>
       </div>
 
+      {modelsError ? <div className="llm-banner llm-banner--error">Models load failed: {modelsError}</div> : null}
       {skillError ? <div className="llm-banner llm-banner--error">Skill load failed: {skillError}</div> : null}
       {featureError ? (
         <div className="llm-banner llm-banner--error">Feature export failed: {featureError}</div>
@@ -475,7 +514,7 @@ export default function LLM() {
         {messages.map((message, messageIndex) => (
           <div key={messageIndex} className={`llm-line llm-line--${message.role}`}>
             <div className="llm-role-label">
-              {message.role === 'user' ? 'You' : geminiModelLabel(model)}
+              {message.role === 'user' ? 'You' : geminiModelLabel(model, modelsCatalog ?? undefined)}
             </div>
             <LlmMarkdown>{message.displayText ?? message.text}</LlmMarkdown>
             {message.stateProposals?.map((proposal, proposalIndex) => {
