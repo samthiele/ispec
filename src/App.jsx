@@ -19,11 +19,12 @@ export default function App() {
 
   // analytics
   useEffect(() => {
-    fetch(
-      `https://app-analytics.my-app-logs.workers.dev?app=ispec2`,
-      { mode: 'cors', keepalive: true }
-    ).catch(() => {})
-  }, [])
+    const url = new URL("https://app-analytics.my-app-logs.workers.dev");
+    url.searchParams.set("app", "ispec");
+    url.searchParams.set("page", window.location.origin);
+  
+    fetch(url, { mode: "cors", keepalive: true }).catch(() => {});
+  }, []);
 
   useEffect(() => {
     if (!shareNotice) return undefined
