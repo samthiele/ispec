@@ -20,7 +20,7 @@ export default function App() {
   // analytics
   useEffect(() => {
     const url = new URL("https://app-analytics.my-app-logs.workers.dev");
-    url.searchParams.set("app", "ispec");
+    url.searchParams.set("app", "ispec2");
     url.searchParams.set("page", window.location.origin);
   
     fetch(url, { mode: "cors", keepalive: true }).catch(() => {});
