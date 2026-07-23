@@ -17,6 +17,14 @@ const INITIAL_LOAD = loadInitialAppState()
 export default function App() {
   const [shareNotice, setShareNotice] = useState('')
 
+  // analytics
+  useEffect(() => {
+    fetch(
+      `https://app-analytics.my-app-logs.workers.dev?app=ispec2`,
+      { mode: 'cors', keepalive: true }
+    ).catch(() => {})
+  }, [])
+
   useEffect(() => {
     if (!shareNotice) return undefined
     const timer = window.setTimeout(() => setShareNotice(''), 2500)
