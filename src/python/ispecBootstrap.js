@@ -1,5 +1,5 @@
 export const HYLITE_WHEEL_URL =
-  'https://hifexplo.github.io/hylite/wheels/hylite-1.4.dev0-py3-none-any.whl'
+  'https://hifexplo.github.io/hylite/wheels/hylite-1.41.dev0-py3-none-any.whl'
 
 export const DEFAULT_LIBRARY_ID = 'usgs_minerals'
 
@@ -342,8 +342,7 @@ def apply_hull_to_spectra(names, x_min, x_max, lookup_map=None):
             full_refl = full_refl[order]
             hydata = HyLibrary(full_refl.reshape(1, 1, -1), wav=full_wav)
         else:
-            lookup = str(lookup_map.get(name, name))
-            hydata = library.getSpectraByName(lookup)
+            hydata = _hydata_for_lookup(name, lookup_map)
             full_wav = _export_wavelengths(hydata)
             full_refl = _reflectance_fraction(_first_spectrum(hydata))
             order = np.argsort(full_wav)
@@ -361,6 +360,69 @@ def apply_hull_to_spectra(names, x_min, x_max, lookup_map=None):
 virtual_spectra = {}
 
 
+def _format_archive_sample_name(archive_key, sample_name):
+    return "(%s) %s" % (archive_key, sample_name)
+
+
+def _candidate_spectrum_queries(name):
+    name = str(name).strip()
+    queries = [name]
+    if ":" in name and not name.startswith("("):
+        lib_id, rest = name.split(":", 1)
+        rest = rest.strip()
+        if rest:
+            queries.append(rest)
+        entry_prefix = str(lib_id) + ":"
+        for key in library.keys():
+            key = str(key)
+            if not key.startswith(entry_prefix):
+                continue
+            queries.append(_format_archive_sample_name(key, rest))
+            inner = key[len(entry_prefix) :]
+            if inner and rest.startswith(inner):
+                suffix = rest[len(inner) :].lstrip("_")
+                if suffix:
+                    queries.append(_format_archive_sample_name(key, suffix))
+    seen = set()
+    ordered = []
+    for query in queries:
+        if query and query not in seen:
+            seen.add(query)
+            ordered.append(query)
+    return ordered
+
+
+def _hydata_for_lookup(name, lookup_map=None):
+    lookup_map = lookup_map or {}
+    mapped = str(lookup_map.get(name, name))
+    candidates = []
+    seen = set()
+    for query in _candidate_spectrum_queries(mapped):
+        if query not in seen:
+            seen.add(query)
+            candidates.append(query)
+    if mapped != str(name):
+        for query in _candidate_spectrum_queries(name):
+            if query not in seen:
+                seen.add(query)
+                candidates.append(query)
+
+    last_error = None
+    for query in candidates:
+        try:
+            return library.getSpectraByName(query)
+        except ValueError as exc:
+            last_error = exc
+        try:
+            hyf, _row, _key, label = _resolve_hyfourier_row(library, query)
+            return hyf.getSpectra(label)
+        except ValueError as exc:
+            last_error = exc
+    raise ValueError(
+        "No spectra match name %r in any archive entry." % name
+    ) from last_error
+
+
 def _spectrum_series(name, lookup_map=None):
     import numpy as np
 
@@ -372,8 +434,7 @@ def _spectrum_series(name, lookup_map=None):
         wav = np.asarray(entry["wavelengths"], dtype=np.float64)
         refl = np.asarray(entry["reflectance"], dtype=np.float64)
     else:
-        lookup = str(lookup_map.get(name, name))
-        hydata = library.getSpectraByName(lookup)
+        hydata = _hydata_for_lookup(name, lookup_map)
         wav = _export_wavelengths(hydata)
         refl = _reflectance_pct(_first_spectrum(hydata))
         wav, refl = _trim_constant_edges(wav, refl)
@@ -827,6 +888,25 @@ def export_selection_spectral_features(names, lookup_map=None):
         )
 
     return {"spectra": spectra}
+
+
+def export_spectrum_wavelength_ranges(names, lookup_map=None):
+    lookup_map = lookup_map or {}
+    ranges = {}
+    for name in names:
+        name = str(name)
+        try:
+            if name in virtual_spectra:
+                wav_min, wav_max = _wavelength_range_nm_from_lists(
+                    virtual_spectra[name]["wavelengths"]
+                )
+            else:
+                wav, _refl = _spectrum_series(name, lookup_map)
+                wav_min, wav_max = _wavelength_range_nm_from_lists(wav.tolist())
+            ranges[name] = [float(wav_min), float(wav_max)]
+        except Exception:
+            ranges[name] = None
+    return ranges
 `
 
 export const ISPEC_BIPLOT_BOOTSTRAP = `

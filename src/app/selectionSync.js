@@ -1,10 +1,33 @@
 import { buildLookupMap, lookupNameForSpectrum } from './selectionMeta.js'
+import { addPythonSelection } from './querySync.js'
 import {
+  buildUploadSpectrumNames,
+  parseSpectrumText,
   sanitizeDownloadBasename,
   sortVirtualMixNames,
   spectrumToTxt,
   triggerTextDownload,
 } from './virtualSpectra.js'
+
+function enrichMixRecipesWithLookups(recipes, selection, selectionMeta) {
+  if (!recipes || typeof recipes !== 'object') return {}
+
+  const lookupMap = buildLookupMap(selection, selectionMeta)
+  const out = {}
+
+  for (const [mixName, components] of Object.entries(recipes)) {
+    if (!Array.isArray(components)) continue
+    out[mixName] = components.map((component) => {
+      if (!component || typeof component !== 'object') return component
+      const name = typeof component.name === 'string' ? component.name.trim() : ''
+      const lookup = component.lookup ?? lookupMap[name]
+      if (!lookup || lookup === name) return component
+      return { ...component, lookup }
+    })
+  }
+
+  return out
+}
 
 function toSpectrumSeriesPayload(exported) {
   if (!exported) return { spectra: [] }
@@ -163,23 +186,26 @@ export async function resamplePythonSelection(pyodide, items, sensor) {
   return toResampleBatchPayload(exported)
 }
 
-export async function rebuildVirtualSpectraFromRecipes(pyodide, recipes = {}) {
+export async function rebuildVirtualSpectraFromRecipes(
+  pyodide,
+  recipes = {},
+  { selection = [], selectionMeta = {} } = {},
+) {
   const mixNames = sortVirtualMixNames(Object.keys(recipes))
   if (!mixNames.length) {
-    await syncPythonVirtualSpectra(pyodide, {})
     return {}
   }
 
+  const enrichedRecipes = enrichMixRecipesWithLookups(recipes, selection, selectionMeta)
   const virtualSpectra = {}
   for (const mixName of mixNames) {
-    const mixed = await createPythonWeightedMixture(pyodide, recipes[mixName], mixName)
+    const mixed = await createPythonWeightedMixture(pyodide, enrichedRecipes[mixName], mixName)
     virtualSpectra[mixName] = {
       wavelengths: mixed.wavelengths,
       reflectance: mixed.reflectance,
     }
   }
 
-  await syncPythonVirtualSpectra(pyodide, virtualSpectra)
   return virtualSpectra
 }
 
@@ -229,4 +255,62 @@ export async function downloadSelectedSpectra(pyodide, selection, selectionMeta)
   if (failures.length) {
     throw new Error(failures.join('\n'))
   }
+}
+
+function isUploadableSpectrumFile(file) {
+  return /\.(txt|csv)$/i.test(String(file?.name ?? ''))
+}
+
+export async function uploadSpectrumFiles(pyodide, files, selection, virtualSpectra) {
+  const uploadFiles = Array.from(files).filter(isUploadableSpectrumFile)
+  if (uploadFiles.length === 0) {
+    throw new Error('Choose one or more .txt or .csv spectrum files.')
+  }
+
+  const mappings = buildUploadSpectrumNames(
+    uploadFiles.map((file) => file.name),
+    selection,
+    virtualSpectra,
+  )
+  const parsed = []
+  const failures = []
+
+  for (let index = 0; index < uploadFiles.length; index += 1) {
+    const file = uploadFiles[index]
+    const { outputName } = mappings[index]
+    try {
+      const content = await file.text()
+      const series = parseSpectrumText(content)
+      parsed.push({
+        name: outputName,
+        wavelengths: series.wavelengths,
+        reflectance: series.reflectance,
+      })
+    } catch (err) {
+      failures.push(`${file.name}: ${err instanceof Error ? err.message : String(err)}`)
+    }
+  }
+
+  if (parsed.length === 0) {
+    throw new Error(failures.join('\n') || 'No spectra could be loaded.')
+  }
+
+  const nextVirtual = { ...virtualSpectra }
+  for (const spectrum of parsed) {
+    nextVirtual[spectrum.name] = {
+      wavelengths: spectrum.wavelengths,
+      reflectance: spectrum.reflectance,
+    }
+  }
+
+  await syncPythonVirtualSpectra(pyodide, nextVirtual)
+
+  let nextSelection = [...selection]
+  for (const spectrum of parsed) {
+    if (!nextSelection.includes(spectrum.name)) {
+      nextSelection = await addPythonSelection(pyodide, spectrum.name)
+    }
+  }
+
+  return { nextVirtual, nextSelection, failures }
 }

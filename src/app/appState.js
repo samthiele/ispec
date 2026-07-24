@@ -3,7 +3,7 @@ import { compactBiplotPaneState, normalizeBiplotPaneState } from './biplotState.
 import { compactSpectraPaneState, normalizeSpectraPaneState } from './spectraState.js'
 import { DEFAULT_CONFIDENCE, DEFAULT_PAGE_SIZE } from './querySync.js'
 import { normalizeSelectionMeta } from './selectionMeta.js'
-import { normalizeVirtualMixRecipes } from './virtualSpectra.js'
+import { normalizeVirtualMixRecipes, normalizeVirtualSpectra, shareableVirtualSpectra } from './virtualSpectra.js'
 
 export const APP_STATE_VERSION = 4
 
@@ -125,7 +125,7 @@ export function normalizeAppState(raw) {
     selection,
     selectionMeta: normalizeSelectionMeta(raw?.selectionMeta, selection),
     virtualMixRecipes: normalizeVirtualMixRecipes(raw?.virtualMixRecipes, selection),
-    virtualSpectra: {},
+    virtualSpectra: normalizeVirtualSpectra(raw?.virtualSpectra, selection),
     viewMode,
     panes: normalizePanes(raw?.panes, viewMode),
   }
@@ -143,6 +143,13 @@ function shareablePaneState(type, state) {
 
 export function toShareableState(appState) {
   const libraries = normalizeLoadedLibraries(appState.libraries, { fallbackToDefault: false })
+  const selection = appState.selection ?? []
+  const virtualMixRecipes = appState.virtualMixRecipes ?? {}
+  const virtualSpectra = shareableVirtualSpectra(
+    appState.virtualSpectra ?? {},
+    selection,
+    virtualMixRecipes,
+  )
   return {
     v: appState.v,
     ...(libraries.length > 0 ? { libraries } : {}),
@@ -150,9 +157,10 @@ export function toShareableState(appState) {
     slice: appState.slice,
     confidence: appState.confidence,
     pageSize: appState.pageSize,
-    selection: appState.selection,
+    selection,
     selectionMeta: appState.selectionMeta,
-    virtualMixRecipes: appState.virtualMixRecipes ?? {},
+    virtualMixRecipes,
+    ...(Object.keys(virtualSpectra).length > 0 ? { virtualSpectra } : {}),
     viewMode: appState.viewMode,
     panes: appState.panes.map(({ type, state }) => ({
       type,

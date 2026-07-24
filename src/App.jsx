@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { parseHashState, clearHash } from './app/shareState.js'
+import { parseLibraryGroupFromHash } from './app/libraries.js'
 import { AppStateProvider } from './context/AppStateProvider.jsx'
 import ISpec from './components/ISpec.jsx'
 
@@ -7,9 +8,11 @@ function loadInitialAppState() {
   const fromHash = parseHashState()
   if (fromHash) {
     clearHash()
-    return { state: fromHash, loadedFromHash: true }
+    return { state: fromHash, loadedFromHash: true, libraryGroup: null }
   }
-  return { state: null, loadedFromHash: false }
+
+  const libraryGroup = parseLibraryGroupFromHash(window.location.hash)
+  return { state: null, loadedFromHash: false, libraryGroup }
 }
 
 const INITIAL_LOAD = loadInitialAppState()
@@ -19,10 +22,11 @@ export default function App() {
 
   // analytics
   useEffect(() => {
+    // analytics
     const url = new URL("https://app-analytics.my-app-logs.workers.dev");
     url.searchParams.set("app", "ispec2");
-    url.searchParams.set("page", window.location.origin);
-  
+    url.searchParams.set("page", `${window.location.origin}${window.location.pathname}`);
+    url.searchParams.set("referrer", document.referrer || "");
     fetch(url, { mode: "cors", keepalive: true }).catch(() => {});
   }, []);
 
@@ -39,6 +43,7 @@ export default function App() {
     >
       <ISpec
         bootstrapAppState={INITIAL_LOAD.state}
+        libraryGroup={INITIAL_LOAD.libraryGroup}
         shareNotice={shareNotice}
         onShareNotice={setShareNotice}
       />

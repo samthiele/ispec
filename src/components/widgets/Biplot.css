@@ -43,6 +43,23 @@
   user-select: none;
 }
 
+.plot-hover-name {
+  position: absolute;
+  left: 0.45rem;
+  right: 3rem;
+  top: 0.35rem;
+  z-index: 2;
+  margin: 0;
+  padding: 0.15rem 0.35rem;
+  border-radius: 3px;
+  background: rgba(18, 19, 22, 0.85);
+  color: #22d3ee;
+  font-size: 0.72rem;
+  line-height: 1.35;
+  word-break: break-word;
+  pointer-events: none;
+}
+
 .biplot-settings-toggle {
   position: absolute;
   top: 0.45rem;

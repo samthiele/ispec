@@ -50,8 +50,20 @@ export function compactSpectraPaneState(state) {
   return compact
 }
 
+export function isPlaceholderEmptyDomain(xDomain) {
+  return (
+    Array.isArray(xDomain)
+    && xDomain.length === 2
+    && Number(xDomain[0]) === 0
+    && Number(xDomain[1]) === 1
+  )
+}
+
 export function hasSavedSpectraView(state) {
   const merged = mergeSpectraPaneState(state)
+  if (isPlaceholderEmptyDomain(merged.xDomain)) {
+    return merged.yDomain != null || merged.activeBand !== 'ALL' || merged.applyHull
+  }
   return (
     merged.xDomain != null
     || merged.yDomain != null

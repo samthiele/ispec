@@ -60,9 +60,26 @@ export function formatStateProposalPreview(state) {
       `Biplot: x=${biplotPane.state.xExpr ?? 'default'}, y=${biplotPane.state.yExpr ?? 'default'}`,
     )
   }
-  const mixCount = Object.keys(state.virtualMixRecipes ?? {}).length
+  const spectraPane = state.panes?.find((pane) => pane.type === 'spectra')
+  if (spectraPane?.state?.xDomain) {
+    const [x0, x1] = spectraPane.state.xDomain
+    lines.push(`Spectra view: ${x0}–${x1} nm`)
+  }
+  const mixRecipeNames = Object.keys(state.virtualMixRecipes ?? {})
+  const mixCount = mixRecipeNames.length
   if (mixCount > 0) {
-    lines.push(`Virtual mixes: ${mixCount}`)
+    const mixNames = mixRecipeNames.map((name) => {
+      const match = /^\(virtual\)\s+\[mix\]\s+(.+)$/.exec(name)
+      return match ? match[1] : name
+    })
+    lines.push(`Virtual mixes: ${mixNames.join(', ')}`)
+  }
+  const mixNameSet = new Set(mixRecipeNames)
+  const storedVirtualCount = Object.keys(state.virtualSpectra ?? {}).filter(
+    (name) => !mixNameSet.has(name),
+  ).length
+  if (storedVirtualCount > 0) {
+    lines.push(`Stored virtual spectra: ${storedVirtualCount}`)
   }
   if (lines.length === 0) {
     lines.push('App configuration update')

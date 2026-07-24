@@ -1,5 +1,13 @@
 import { DEFAULT_LIBRARY_ID } from '../python/ispecBootstrap.js'
 
+export const LIBRARY_GROUPS = Object.freeze([
+  'minerals',
+  'mixtures',
+  'polymers',
+  'vegetation',
+  'remotesensing',
+])
+
 export function librariesIndexUrl() {
   const base = import.meta.env.BASE_URL.endsWith('/')
     ? import.meta.env.BASE_URL
@@ -36,6 +44,25 @@ export function getDefaultLibraryIds(catalog) {
   const defaults = catalog.filter((entry) => entry.default).map((entry) => entry.id)
   if (defaults.length > 0) return defaults
   return catalog.length === 1 ? [catalog[0].id] : []
+}
+
+export function normalizeLibraryGroups(raw) {
+  if (!Array.isArray(raw)) return []
+  return raw.filter((group) => LIBRARY_GROUPS.includes(group))
+}
+
+export function getLibraryIdsForGroup(catalog, groupName) {
+  if (!LIBRARY_GROUPS.includes(groupName)) return []
+  return catalog
+    .filter((entry) => normalizeLibraryGroups(entry.group).includes(groupName))
+    .map((entry) => entry.id)
+}
+
+export function parseLibraryGroupFromHash(hash) {
+  if (!hash || !hash.startsWith('#')) return null
+  const fragment = hash.slice(1).split('&')[0].trim().toLowerCase()
+  if (!fragment || fragment.startsWith('s=')) return null
+  return LIBRARY_GROUPS.includes(fragment) ? fragment : null
 }
 
 export { DEFAULT_LIBRARY_ID }

@@ -11,11 +11,13 @@ import { bisectLeft } from 'd3-array'
 import { useCoarsePointer } from '../../app/useCoarsePointer.js'
 import { useSpectraPlotGestures } from '../../app/useSpectraPlotGestures.js'
 import { spectrumStrokeStyle } from '../../app/spectraStyling.js'
+import { isResampledVirtualSpectrum } from '../../app/satelliteResample.js'
 import { ALL_WAVELENGTH_MAX_NM } from '../../app/spectralBands.js'
 import { POSITION_GUIDE_LINE_COLOR } from '../../app/spectralExpression.js'
 import { Y_AXIS_PAD_FRACTION } from '../../app/spectraSync.js'
 
-const margin = { top: 12, right: 12, bottom: 42, left: 52 }
+const margin = { top: 12, right: 12, bottom: 50, left: 52 }
+const X_AXIS_LABEL = 'Wavelength (nm)'
 const HOVER_DISTANCE_PX = 10
 const DOUBLE_CLICK_MS = 350
 const CURSOR_LINE_COLOR = '#9aa0a6'
@@ -39,7 +41,7 @@ function chartPoint(event) {
   }
 }
 
-function buildSeriesSegments(wavelengths, reflectance) {
+function buildSeriesSegments(wavelengths, reflectance, { maxGap = MAX_WAVELENGTH_GAP_NM } = {}) {
   const segments = []
   let current = []
   const n = Math.min(wavelengths.length, reflectance.length)
@@ -51,7 +53,7 @@ function buildSeriesSegments(wavelengths, reflectance) {
 
     if (current.length > 0) {
       const gap = x - current[current.length - 1].x
-      if (gap > MAX_WAVELENGTH_GAP_NM) {
+      if (Number.isFinite(maxGap) && gap > maxGap) {
         segments.push(current)
         current = []
       }
@@ -360,7 +362,12 @@ function SpectraPlotInner({
 
           {orderedSpectra.map((spectrum) => {
             const style = spectrumStrokeStyle(spectrum, stylingContext, hoveredSpectrum)
-            const segments = buildSeriesSegments(spectrum.wavelengths, spectrum.reflectance)
+            const maxGap = isResampledVirtualSpectrum(spectrum.name)
+              ? Number.POSITIVE_INFINITY
+              : MAX_WAVELENGTH_GAP_NM
+            const segments = buildSeriesSegments(spectrum.wavelengths, spectrum.reflectance, {
+              maxGap,
+            })
 
             return segments.map((points, segmentIndex) => (
               <LinePath
@@ -444,15 +451,19 @@ function SpectraPlotInner({
             fill: '#9aa0a6',
             fontSize: 10,
             textAnchor: 'middle',
+            dy: 4,
           }}
-          label="Wavelength (nm)"
-          labelProps={{
-            fill: '#9aa0a6',
-            fontSize: 11,
-            textAnchor: 'middle',
-          }}
-          labelOffset={28}
         />
+
+        <text
+          x={innerWidth / 2}
+          y={innerHeight + 34}
+          fill="#9aa0a6"
+          fontSize={11}
+          textAnchor="middle"
+        >
+          {X_AXIS_LABEL}
+        </text>
 
         <rect
           className="spectra-axis-pan spectra-axis-pan--y"

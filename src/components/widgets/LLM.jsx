@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { toShareableState } from '../../app/appState.js'
 import { clearGeminiApiKey, getGeminiApiKey, setGeminiApiKey } from '../../app/geminiApiKey.js'
-import { createGeminiChat, sendGeminiMessage } from '../../app/geminiClient.js'
+import { createGeminiChat, sendGeminiMessageWithTools } from '../../app/geminiClient.js'
+import { executeLlmToolCall } from '../../app/llmTools.js'
 import {
   geminiModelLabel,
   getGeminiModel,
@@ -12,6 +13,7 @@ import {
 import { buildLlmSpectralContext } from '../../app/llmFeatures.js'
 import {
   exportSelectionSpectralFeatures,
+  exportSpectrumWavelengthRanges,
   loadSkillDocument,
 } from '../../app/llmSync.js'
 import {
@@ -21,6 +23,7 @@ import {
 } from '../../app/llmStateBlocks.js'
 import { buildLookupMap, selectionGroupDep } from '../../app/selectionMeta.js'
 import { buildShareUrl } from '../../app/shareState.js'
+import { clampSlice } from '../../app/querySync.js'
 import { useCoreAppState } from '../../context/useAppState.js'
 import { useLlmChat } from '../../context/useLlmChat.js'
 import { usePyodide } from '../../context/usePyodide.js'
@@ -44,7 +47,9 @@ When proposing configuration changes, emit a \`\`\`ispec-state fenced JSON block
 
 ${spectralSummary}
 
-Interpret user questions in light of this context. Cite wavelengths (nm) from selected-spectra features when reasoning about minerals or mixtures. Use canonical names from search results when proposing selection updates.`
+Interpret user questions in light of this context. Cite wavelengths (nm) from selected-spectra features when reasoning about minerals or mixtures.
+
+When you need canonical spectrum names that are not already in the current search results or selection, call the **search_spectra** tool before emitting an \`ispec-state\` block. Tool calls are invisible to the user — only your final reply is shown. Never invent canonical names.`
 }
 
 function toGeminiHistory(messages) {
@@ -270,6 +275,15 @@ export default function LLM() {
           )
         }
 
+        let wavelengthRanges = {}
+        if (appState.query.trim() && searchResults?.total) {
+          const [start, end] = clampSlice(appState.slice, searchResults.total, appState.pageSize)
+          const visibleNames = searchResults.names.slice(start, end)
+          if (visibleNames.length) {
+            wavelengthRanges = await exportSpectrumWavelengthRanges(pyodide, visibleNames, lookupMap)
+          }
+        }
+
         const summary = buildLlmSpectralContext({
           selectionExport,
           query: appState.query,
@@ -277,6 +291,7 @@ export default function LLM() {
           slice: appState.slice,
           pageSize: appState.pageSize,
           selection: appState.selection,
+          wavelengthRanges,
         })
         if (cancelled) return
         setSpectralSummary(summary)
@@ -419,7 +434,16 @@ export default function LLM() {
     setMessages((prev) => [...prev, { role: 'user', kind: 'chat', text }])
 
     try {
-      const reply = await sendGeminiMessage(chatRef.current, text)
+      const appSnapshot = {
+        query: appState.query,
+        confidence: appState.confidence,
+        slice: appState.slice,
+        selection: appState.selection,
+      }
+      const reply = await sendGeminiMessageWithTools(chatRef.current, text, {
+        executeTool: async (name, args) =>
+          runQueued(async () => executeLlmToolCall(pyodide, name, args, appSnapshot)),
+      })
       const { displayText, blocks } = extractStateBlocks(reply)
       setMessages((prev) => [
         ...prev,
@@ -440,7 +464,22 @@ export default function LLM() {
     } finally {
       setBusy(false)
     }
-  }, [apiKey, busy, currentStateJson, input, model, skillError, skillText, spectralSummary])
+  }, [
+    apiKey,
+    appState.confidence,
+    appState.query,
+    appState.selection,
+    appState.slice,
+    busy,
+    currentStateJson,
+    input,
+    model,
+    pyodide,
+    runQueued,
+    skillError,
+    skillText,
+    spectralSummary,
+  ])
 
   const handleKeyDown = (event) => {
     if (event.key === 'Enter' && !event.shiftKey) {

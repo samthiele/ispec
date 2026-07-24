@@ -12,6 +12,22 @@ export function formatMixSpectrumName(index) {
   return `(${VIRTUAL_ARCHIVE}) [${MIX_GROUP}] Mix ${index}`
 }
 
+/** User- or LLM-chosen mix label, e.g. `(virtual) [mix] DolTrem`. */
+export function formatNamedMixSpectrumName(label) {
+  const cleaned = normalizeMixLabel(label)
+  if (!cleaned) {
+    throw new Error('Mix label must contain letters, numbers, dots, underscores, or hyphens.')
+  }
+  return `(${VIRTUAL_ARCHIVE}) [${MIX_GROUP}] ${cleaned}`
+}
+
+export function normalizeMixLabel(label) {
+  return String(label ?? '')
+    .trim()
+    .replace(/[^\w.-]+/g, '')
+    .slice(0, 64)
+}
+
 export function nextMixSpectrumName(selection = [], virtualSpectra = {}) {
   let index = 1
   while (
@@ -33,7 +49,9 @@ export function parseVirtualName(name) {
 export function parseMixIndex(name) {
   const parsed = parseVirtualName(name)
   if (!parsed) return Number.POSITIVE_INFINITY
-  const match = /Mix\s+(\d+)/i.exec(parsed.rest)
+  const groupMatch = /^\[([^\]]+)\]\s+(.*)$/.exec(parsed.rest)
+  const sampleId = groupMatch ? groupMatch[2] : parsed.rest
+  const match = /^Mix\s+(\d+)$/i.exec(sampleId.trim())
   return match ? Number(match[1]) : Number.POSITIVE_INFINITY
 }
 
@@ -114,6 +132,21 @@ export function pruneVirtualSpectra(virtualSpectra, selection) {
   return normalizeVirtualSpectra(virtualSpectra, selection)
 }
 
+/** Virtual spectra stored in share state (uploads, resamples — not recipe-derived mixes). */
+export function shareableVirtualSpectra(virtualSpectra, selection, virtualMixRecipes = {}) {
+  const mixNames = new Set(Object.keys(virtualMixRecipes ?? {}))
+  const normalized = normalizeVirtualSpectra(virtualSpectra, selection)
+  const out = {}
+
+  for (const [name, payload] of Object.entries(normalized)) {
+    if (!mixNames.has(name)) {
+      out[name] = payload
+    }
+  }
+
+  return out
+}
+
 export function sanitizeDownloadBasename(name) {
   const parsed = parseVirtualName(name)
   const rest = parsed?.rest ?? name
@@ -147,4 +180,117 @@ export function spectrumToTxt(wavelengths, reflectance) {
     lines.push(`${wavelength}\t${value}`)
   }
   return `${lines.join('\n')}\n`
+}
+
+const UPLOAD_GROUP = 'upload'
+
+export function uploadBasenameFromFilename(filename) {
+  const base = String(filename)
+    .replace(/^.*[/\\]/, '')
+    .replace(/\.(txt|csv)$/i, '')
+  const cleaned = base
+    .replace(/[^\w.-]+/g, '_')
+    .replace(/^_+|_+$/g, '')
+    .slice(0, 80)
+  return cleaned || 'spectrum'
+}
+
+export function formatUploadSpectrumName(sampleId, index = 1) {
+  const suffix = index > 1 ? ` ${index}` : ''
+  return `(${VIRTUAL_ARCHIVE}) [${UPLOAD_GROUP}] ${sampleId}${suffix}`
+}
+
+export function buildUploadSpectrumNames(filenames, selection = [], virtualSpectra = {}) {
+  const reserved = new Set(selection)
+  const names = []
+
+  for (const filename of filenames) {
+    const sampleId = uploadBasenameFromFilename(filename)
+    let index = 1
+    let outputName = formatUploadSpectrumName(sampleId, index)
+    while (reserved.has(outputName) || virtualSpectra[outputName]) {
+      index += 1
+      outputName = formatUploadSpectrumName(sampleId, index)
+    }
+    reserved.add(outputName)
+    names.push({ filename, sampleId, outputName })
+  }
+
+  return names
+}
+
+function normalizeReflectancePercent(reflectance) {
+  const finite = reflectance.filter(Number.isFinite)
+  if (finite.length === 0) return reflectance
+  const max = Math.max(...finite)
+  if (max <= 2) {
+    return reflectance.map((value) => (Number.isFinite(value) ? value * 100 : value))
+  }
+  return reflectance
+}
+
+function detectSpectrumDelimiter(headerLine) {
+  if (headerLine.includes('\t')) return '\t'
+  if (headerLine.includes(',')) return ','
+  return '\t'
+}
+
+function splitSpectrumColumns(line, delimiter) {
+  return line.split(delimiter).map((column) => column.trim())
+}
+
+export function parseSpectrumText(content) {
+  const text = String(content ?? '').replace(/^\uFEFF/, '').trim()
+  if (!text) {
+    throw new Error('File is empty.')
+  }
+
+  const lines = text
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line && !line.startsWith('#'))
+
+  if (lines.length < 2) {
+    throw new Error('File must contain a header row and at least one data row.')
+  }
+
+  const delimiter = detectSpectrumDelimiter(lines[0])
+  const headerCols = splitSpectrumColumns(lines[0], delimiter).map((column) => column.toLowerCase())
+
+  let wavelengthIndex = headerCols.findIndex(
+    (column) => column === 'wavelength_nm' || column === 'wavelength' || column === 'nm',
+  )
+  let reflectanceIndex = headerCols.findIndex(
+    (column) => column === 'reflectance' || column === 'refl' || column === 'reflectance_pct',
+  )
+
+  if (wavelengthIndex < 0 || reflectanceIndex < 0) {
+    if (headerCols.length >= 2) {
+      wavelengthIndex = 0
+      reflectanceIndex = 1
+    } else {
+      throw new Error('Expected header columns wavelength_nm and reflectance.')
+    }
+  }
+
+  const wavelengths = []
+  const reflectance = []
+
+  for (let lineIndex = 1; lineIndex < lines.length; lineIndex += 1) {
+    const columns = splitSpectrumColumns(lines[lineIndex], delimiter)
+    const wavelength = Number(columns[wavelengthIndex])
+    const value = Number(columns[reflectanceIndex])
+    if (!Number.isFinite(wavelength) || !Number.isFinite(value)) continue
+    wavelengths.push(wavelength)
+    reflectance.push(value)
+  }
+
+  if (wavelengths.length === 0) {
+    throw new Error('No valid wavelength/reflectance pairs found.')
+  }
+
+  return {
+    wavelengths,
+    reflectance: normalizeReflectancePercent(reflectance),
+  }
 }

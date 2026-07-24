@@ -1,8 +1,15 @@
 import { useEffect, useId, useRef, useState } from 'react'
-import { downloadPlotPng, downloadPlotSvg, findPlotSvg } from '../app/plotDownload.js'
+import { findPlotSvg } from '../app/plotDownload.js'
+import { downloadPlotWithLegend } from '../app/plotLegend.js'
 import './PlotSaveMenu.css'
 
-export default function PlotSaveMenu({ containerRef, basename, disabled = false, className = '' }) {
+export default function PlotSaveMenu({
+  containerRef,
+  basename,
+  disabled = false,
+  className = '',
+  legendSections = null,
+}) {
   const menuId = useId()
   const rootRef = useRef(null)
   const [open, setOpen] = useState(false)
@@ -35,12 +42,7 @@ export default function PlotSaveMenu({ containerRef, basename, disabled = false,
 
     setBusy(true)
     try {
-      const filename = `${basename}.${format}`
-      if (format === 'svg') {
-        downloadPlotSvg(svg, filename)
-      } else {
-        await downloadPlotPng(svg, filename)
-      }
+      await downloadPlotWithLegend(svg, basename, format, legendSections)
       setOpen(false)
     } finally {
       setBusy(false)

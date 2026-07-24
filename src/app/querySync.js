@@ -1,6 +1,41 @@
 export const DEFAULT_CONFIDENCE = 10
 export const DEFAULT_PAGE_SIZE = 15
 
+const SEARCH_RANGE_RE = /^\d+(?:\.\d+)?-\d+(?:\.\d+)?$/
+const SEARCH_NUMBER_RE = /^\d+(?:\.\d+)?$/
+
+/** Wavelengths (nm) referenced by numeric tokens in a spectral search query. */
+export function parseSearchQueryWavelengths(query) {
+  const trimmed = String(query ?? '').trim()
+  if (!trimmed) return []
+
+  const wavelengths = []
+  for (const subQuery of trimmed.split('|')) {
+    for (const rawToken of subQuery.trim().split(/\s+/)) {
+      let token = rawToken
+      if (!token) continue
+      if (token.startsWith('!')) token = token.slice(1)
+      if (token.startsWith('^')) token = token.slice(1)
+      if (!token) continue
+
+      if (SEARCH_RANGE_RE.test(token)) {
+        const [loText, hiText] = token.split('-')
+        const lo = Number(loText)
+        const hi = Number(hiText)
+        if (Number.isFinite(lo) && lo > 0) wavelengths.push(lo)
+        if (Number.isFinite(hi) && hi > 0) wavelengths.push(hi)
+      } else if (SEARCH_NUMBER_RE.test(token)) {
+        const wavelength = Number(token)
+        if (Number.isFinite(wavelength) && wavelength > 0) {
+          wavelengths.push(wavelength)
+        }
+      }
+    }
+  }
+
+  return [...new Set(wavelengths)].sort((left, right) => left - right)
+}
+
 export async function exportSearchResult(pyodide) {
   const exported = await pyodide.runPythonAsync('export_search_result()')
   return toSearchResult(exported)

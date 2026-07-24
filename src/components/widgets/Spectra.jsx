@@ -12,15 +12,19 @@ import {
   selectedColorsMap,
   selectionColorsDep,
   selectionGroupDep,
+  spectrumHoverLabel,
 } from '../../app/selectionMeta.js'
 import { SPECTRAL_BANDS, SPECTRAL_BAND_KEYS } from '../../app/spectralBands.js'
 import { findBiplotPaneState, mergeBiplotPaneState } from '../../app/biplotState.js'
+import { parseSearchQueryWavelengths } from '../../app/querySync.js'
 import {
   compactSpectraPaneState,
   hasSavedSpectraView,
+  isPlaceholderEmptyDomain,
   mergeSpectraPaneState,
 } from '../../app/spectraState.js'
 import { spectraCrosshairWavelengths } from '../../app/spectralExpression.js'
+import { buildSpectraLegendSections } from '../../app/plotLegend.js'
 import { useCoreAppState } from '../../context/useAppState.js'
 import { useInteraction } from '../../context/useInteraction.js'
 import { usePyodide } from '../../context/usePyodide.js'
@@ -76,15 +80,25 @@ export default function Spectra({ paneIndex, paneState }) {
 
   const deferredSelectedColors = useDeferredValue(selectedColors)
 
+  const hoverLabel = useMemo(
+    () => spectrumHoverLabel(hoveredSpectrum, selectionMeta),
+    [hoveredSpectrum, selectionMeta, groupDep],
+  )
+
   const biplotConfig = useMemo(
     () => mergeBiplotPaneState(findBiplotPaneState(appState.panes)),
     [appState.panes],
   )
 
-  const positionGuideWavelengths = useMemo(
-    () => spectraCrosshairWavelengths(biplotCrosshair, biplotConfig.xExpr, biplotConfig.yExpr),
-    [biplotConfig.xExpr, biplotConfig.yExpr, biplotCrosshair],
-  )
+  const positionGuideWavelengths = useMemo(() => {
+    const fromQuery = parseSearchQueryWavelengths(appState.query)
+    const fromCrosshair = spectraCrosshairWavelengths(
+      biplotCrosshair,
+      biplotConfig.xExpr,
+      biplotConfig.yExpr,
+    )
+    return [...new Set([...fromQuery, ...fromCrosshair])].sort((left, right) => left - right)
+  }, [appState.query, biplotConfig.xExpr, biplotConfig.yExpr, biplotCrosshair])
 
   const visibleSpectra = useMemo(
     () => visibleRawSpectra(rawPlotData, showSelected, showQuery),
@@ -130,7 +144,14 @@ export default function Spectra({ paneIndex, paneState }) {
   )
 
   const plotLoadRef = useRef({ contextKey: null, selectionKey: null })
-  const restoreViewRef = useRef(null)
+
+  useEffect(() => {
+    if (!hasSavedSpectraView(savedPane)) return
+    setXDomain(savedPane.xDomain)
+    setYDomain(savedPane.yDomain)
+    setActiveBand(savedPane.activeBand)
+    setApplyHull(savedPane.applyHull)
+  }, [savedPane])
 
   useEffect(() => {
     if (status !== 'ready' || !pyodide) return undefined
@@ -149,8 +170,7 @@ export default function Spectra({ paneIndex, paneState }) {
     setError('')
 
     if (!selectionOnly) {
-      restoreViewRef.current = mergeSpectraPaneState(paneState)
-      if (!hasSavedSpectraView(restoreViewRef.current)) {
+      if (!hasSavedSpectraView(mergeSpectraPaneState(paneState))) {
         setApplyHull(false)
         setHullPlotData(null)
         setHullRange(null)
@@ -164,21 +184,31 @@ export default function Spectra({ paneIndex, paneState }) {
       .then((data) => {
         if (cancelled) return
         setRawPlotData(data)
-        if (!selectionOnly) {
-          const saved = restoreViewRef.current
-          if (saved && hasSavedSpectraView(saved)) {
-            const defaults = defaultDomainsFromData(data.spectra)
-            setXDomain(saved.xDomain ?? defaults.xDomain)
-            setYDomain(saved.yDomain ?? defaults.yDomain)
-            setActiveBand(saved.activeBand)
-            setApplyHull(saved.applyHull)
-          } else {
-            const defaults = defaultDomainsFromData(data.spectra)
-            setXDomain(defaults.xDomain)
-            setYDomain(defaults.yDomain)
-            setActiveBand('ALL')
-          }
+        const saved = mergeSpectraPaneState(paneState)
+        const defaults = defaultDomainsFromData(data.spectra)
+        const explicitView = hasSavedSpectraView(saved)
+
+        if (selectionOnly && explicitView) {
+          return
         }
+
+        if (explicitView) {
+          const nextX = isPlaceholderEmptyDomain(saved.xDomain)
+            ? defaults.xDomain
+            : (saved.xDomain ?? defaults.xDomain)
+          setXDomain(nextX)
+          setYDomain(saved.yDomain ?? defaults.yDomain)
+          setActiveBand(saved.activeBand)
+          setApplyHull(saved.applyHull)
+          return
+        }
+
+        setXDomain(defaults.xDomain)
+        setYDomain(defaults.yDomain)
+        setActiveBand('ALL')
+        setApplyHull(false)
+        setHullPlotData(null)
+        setHullRange(null)
       })
       .catch((err) => {
         if (cancelled) return
@@ -200,6 +230,7 @@ export default function Spectra({ paneIndex, paneState }) {
     appState.query,
     appState.pageSize,
     lookupMap,
+    paneState,
   ])
 
   const hullXDomain = useMemo(() => {
@@ -388,6 +419,24 @@ export default function Spectra({ paneIndex, paneState }) {
   const plotBusy = loading || (applyHull && hullLoading)
   const plotHostRef = useRef(null)
 
+  const legendSections = useMemo(
+    () => buildSpectraLegendSections(displayPlotData.spectra, {
+      selection: appState.selection,
+      selectionMeta,
+      selectedColors: deferredSelectedColors,
+      showSelected,
+      showQuery,
+    }),
+    [
+      appState.selection,
+      deferredSelectedColors,
+      displayPlotData.spectra,
+      selectionMeta,
+      showQuery,
+      showSelected,
+    ],
+  )
+
   return (
     <div className="widget widget-spectra">
       {error ? <p className="spectra-status spectra-status--error">{error}</p> : null}
@@ -399,12 +448,20 @@ export default function Spectra({ paneIndex, paneState }) {
       <SpectraPlot
         hostRef={plotHostRef}
         overlay={
-          <PlotSaveMenu
-            containerRef={plotHostRef}
-            basename="spectra"
-            className="spectra-save-menu"
-            disabled={plotBusy || !hasVisibleSpectra}
-          />
+          <>
+            <PlotSaveMenu
+              containerRef={plotHostRef}
+              basename="spectra"
+              className="spectra-save-menu"
+              disabled={plotBusy || !hasVisibleSpectra}
+              legendSections={legendSections}
+            />
+            {hoverLabel ? (
+              <p className="plot-hover-name" aria-live="polite">
+                {hoverLabel}
+              </p>
+            ) : null}
+          </>
         }
         plotData={displayPlotData}
         xDomain={resolvedDomains.xDomain}

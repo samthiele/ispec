@@ -27,6 +27,7 @@ import {
   selectedColorsMap,
   selectionColorsDep,
   selectionGroupDep,
+  spectrumHoverLabel,
 } from '../../app/selectionMeta.js'
 import { useCoreAppState } from '../../context/useAppState.js'
 import { useInteraction } from '../../context/useInteraction.js'
@@ -411,6 +412,11 @@ export default function Biplot({ paneIndex, paneState }) {
     [appState.selection, colorsDep],
   )
 
+  const hoverLabel = useMemo(
+    () => spectrumHoverLabel(hoveredSpectrum, selectionMeta),
+    [hoveredSpectrum, selectionMeta, groupDep],
+  )
+
   const patchDraft = useCallback((patch) => {
     setDraftConfig((current) => ({ ...current, ...patch }))
   }, [])
@@ -475,10 +481,11 @@ export default function Biplot({ paneIndex, paneState }) {
   )
 
   const handleBiplotPlotLeave = useCallback(() => {
+    setHoveredSpectrum(null)
     if (biplotCrosshair.active) {
       setBiplotCrosshair(EMPTY_BIPLOT_CROSSHAIR)
     }
-  }, [biplotCrosshair.active, setBiplotCrosshair])
+  }, [biplotCrosshair.active, setBiplotCrosshair, setHoveredSpectrum])
 
   const runPlot = useCallback(
     async (configOverride) => {
@@ -601,7 +608,13 @@ export default function Biplot({ paneIndex, paneState }) {
               : 'Run a search or select spectra, then open settings and click Update.'}
           </p>
         ) : showPlot ? (
-          <ParentSize debounceTime={50}>
+          <>
+            {hoverLabel ? (
+              <p className="plot-hover-name" aria-live="polite">
+                {hoverLabel}
+              </p>
+            ) : null}
+            <ParentSize debounceTime={50}>
             {({ width, height }) =>
               width > 0 && height > 0 ? (
                 <BiplotScatter
@@ -616,7 +629,8 @@ export default function Biplot({ paneIndex, paneState }) {
                 />
               ) : null
             }
-          </ParentSize>
+            </ParentSize>
+          </>
         ) : (
           <p className="biplot-empty">Evaluating attributes…</p>
         )}

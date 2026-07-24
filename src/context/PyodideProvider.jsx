@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { DEFAULT_LIBRARY_ID, fetchLibraryCatalog, getDefaultLibraryIds } from '../app/libraries.js'
+import { DEFAULT_LIBRARY_ID, fetchLibraryCatalog, getDefaultLibraryIds, getLibraryIdsForGroup } from '../app/libraries.js'
 import { createDefaultAppState, normalizeLoadedLibraries } from '../app/appState.js'
 import { hydrateSharedAppState } from '../app/hydrateSharedState.js'
 import {
@@ -26,7 +26,7 @@ function formatResult(value) {
   return String(value)
 }
 
-export function PyodideProvider({ children, initialAppState }) {
+export function PyodideProvider({ children, initialAppState, libraryGroup = null }) {
   const { appState, setAppState, setSearchResults, setLibraries } = useCoreAppState()
   const appStateRef = useRef(appState)
 
@@ -129,7 +129,12 @@ export function PyodideProvider({ children, initialAppState }) {
         const catalog = await getCatalog()
         let libraries = normalizeLoadedLibraries(initial.libraries, { fallbackToDefault: false })
         if (libraries.length === 0) {
-          libraries = getDefaultLibraryIds(catalog)
+          if (libraryGroup) {
+            libraries = getLibraryIdsForGroup(catalog, libraryGroup)
+          }
+          if (libraries.length === 0) {
+            libraries = getDefaultLibraryIds(catalog)
+          }
         }
         if (libraries.length === 0) {
           libraries = [DEFAULT_LIBRARY_ID]
@@ -170,7 +175,7 @@ export function PyodideProvider({ children, initialAppState }) {
     return () => {
       cancelled = true
     }
-  }, [getCatalog, setAppState, setLibraries, setSearchResults, syncLibrariesImpl])
+  }, [getCatalog, libraryGroup, setAppState, setLibraries, setSearchResults, syncLibrariesImpl])
 
   const execute = useCallback(
     (code, { source = 'console', echo = true } = {}) => {

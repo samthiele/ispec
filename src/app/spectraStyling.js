@@ -2,12 +2,26 @@ import { interpolateCool } from 'd3-scale-chromatic'
 
 const HOVER_COLOR = '#22d3ee'
 const SELECTED_COLOR = '#ffffff'
-const MIN_OPACITY = 0.25
-const MAX_OPACITY = 0.95
+const MIN_OPACITY = 0.55
 
 function scoreOpacity(score, scores) {
-  const scoreNorm = percentileClipNormalize(score, scores)
-  return MIN_OPACITY + scoreNorm * (MAX_OPACITY - MIN_OPACITY)
+  if (score == null || !Number.isFinite(score)) return MIN_OPACITY
+
+  const finite = scores.filter((entry) => entry != null && Number.isFinite(entry))
+  if (finite.length === 0) return MIN_OPACITY
+
+  const maxScore = Math.max(...finite)
+
+  // Top match is 100%: opacity tracks match score, floored at 55%.
+  if (maxScore >= 1) {
+    return Math.max(MIN_OPACITY, Math.min(1, score))
+  }
+
+  if (maxScore <= 0) return MIN_OPACITY
+
+  // Otherwise linear stretch from 0..maxScore to MIN_OPACITY..1.
+  const stretched = score / maxScore
+  return MIN_OPACITY + stretched * (1 - MIN_OPACITY)
 }
 
 export function percentileClipNormalize(value, values, low = 0.05, high = 0.95) {

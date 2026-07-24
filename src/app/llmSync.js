@@ -12,6 +12,22 @@ export async function exportSelectionSpectralFeatures(pyodide, selection, lookup
   return exported
 }
 
+export async function exportSpectrumWavelengthRanges(pyodide, names, lookupMap = {}) {
+  if (!names?.length) return {}
+
+  const exported = await pyodide.runPythonAsync(
+    `export_spectrum_wavelength_ranges(${JSON.stringify(names)}, ${JSON.stringify(lookupMap)})`,
+  )
+
+  if (exported && typeof exported.toJs === 'function') {
+    const payload = exported.toJs({ dict_converter: Object.fromEntries })
+    exported.destroy?.()
+    return payload
+  }
+
+  return exported ?? {}
+}
+
 export function skillDocumentUrl() {
   const base = import.meta.env.BASE_URL.endsWith('/')
     ? import.meta.env.BASE_URL

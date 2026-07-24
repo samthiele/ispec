@@ -17,6 +17,7 @@ import {
   removePythonVirtualSpectrum,
   resamplePythonSelection,
   syncPythonVirtualSpectra,
+  uploadSpectrumFiles,
 } from '../../app/selectionSync.js'
 import { buildResampleOutputNames, resampleSourceSelection } from '../../app/satelliteResample.js'
 import {
@@ -54,6 +55,8 @@ const CONFIDENCE_TOOLTIP =
   'Default uncertainty (± nm) when matching absorption features in a search.'
 const DOWNLOAD_TOOLTIP =
   'Download selected spectra as .txt files. Caution: this downloads compressed (denoised) spectra, so will not exactly match those in the original library.'
+const UPLOAD_TOOLTIP =
+  'Upload .txt or .csv spectrum files (wavelength_nm and reflectance columns, same format as Download). Uploaded spectra are added as virtual spectra.'
 const MIX_TOOLTIP =
   'Create a virtual mixture from selected spectra using their Mix % weights (at least two with weight > 0).'
 const RESAMPLE_TOOLTIP =
@@ -207,6 +210,7 @@ export default function Query() {
   const [mixDrafts, setMixDrafts] = useState({})
   const colorTimersRef = useRef({})
   const mixTimersRef = useRef({})
+  const uploadInputRef = useRef(null)
   const selection = appState.selection
   const selectionMeta = appState.selectionMeta ?? {}
   const virtualSpectra = appState.virtualSpectra ?? {}
@@ -289,53 +293,26 @@ export default function Query() {
 
   const canGoPrev = activeSlice[0] > 0
   const canGoNext = activeSlice[1] < total
+  const hasActiveSearch = Boolean(appState.query.trim())
+
+  useEffect(() => {
+    if (!hasActiveSearch) {
+      setActiveTab('selected')
+    }
+  }, [hasActiveSearch])
 
   async function syncPythonQuery(query, slice, nextSelection = selection) {
     if (!pyodide) return
     await applyPythonQueryState(pyodide, { query, slice, selection: nextSelection })
   }
 
-  async function handleSubmit(event) {
-    event.preventDefault()
-    if (status !== 'ready' || busy || !pyodide) return
-
-    const query = draftQuery.trim()
-    const confidence = parsePositiveNumber(draftConfidence, appState.confidence)
-    const pageSize = parsePositiveNumber(draftPageSize, appState.pageSize)
-
-    setBusy(true)
-    setError('')
-
-    try {
-      await runQueued(async () => {
-        if (!query) {
-          await clearPythonSearch(pyodide)
-          setSearchResults(null)
-          const nextState = { query: '', slice: [0, 0], confidence, pageSize }
-          setQueryState(nextState)
-          await syncPythonQuery('', [0, 0])
-          return
-        }
-
-        const results = await runPythonSearch(pyodide, query, confidence)
-        const slice = initialSlice(results.total, pageSize)
-        setSearchResults(results)
-        setQueryState({ query, slice, confidence, pageSize })
-        await syncPythonQuery(query, slice)
-      })
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  async function handleClear() {
+  async function clearSearchQuery() {
     if (status !== 'ready' || busy || !pyodide) return
 
     setBusy(true)
     setError('')
     setDraftQuery('')
+    setActiveTab('selected')
 
     try {
       await runQueued(async () => {
@@ -354,6 +331,50 @@ export default function Query() {
       setError(err instanceof Error ? err.message : String(err))
     } finally {
       setBusy(false)
+    }
+  }
+
+  async function handleSubmit(event) {
+    event.preventDefault()
+    if (status !== 'ready' || busy || !pyodide) return
+
+    const query = draftQuery.trim()
+    const confidence = parsePositiveNumber(draftConfidence, appState.confidence)
+    const pageSize = parsePositiveNumber(draftPageSize, appState.pageSize)
+
+    if (!query) {
+      await clearSearchQuery()
+      return
+    }
+
+    setBusy(true)
+    setError('')
+
+    try {
+      await runQueued(async () => {
+        const results = await runPythonSearch(pyodide, query, confidence)
+        const slice = initialSlice(results.total, pageSize)
+        setSearchResults(results)
+        setQueryState({ query, slice, confidence, pageSize })
+        await syncPythonQuery(query, slice)
+        setActiveTab('results')
+      })
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function handleClear() {
+    await clearSearchQuery()
+  }
+
+  async function handleSearchInputChange(event) {
+    const next = event.target.value
+    setDraftQuery(next)
+    if (!next.trim() && appState.query.trim()) {
+      await clearSearchQuery()
     }
   }
 
@@ -483,6 +504,39 @@ export default function Query() {
       setError(err instanceof Error ? err.message : String(err))
     } finally {
       setBusy(false)
+    }
+  }
+
+  function handleUploadClick() {
+    if (status !== 'ready' || busy) return
+    uploadInputRef.current?.click()
+  }
+
+  async function handleUploadSelected(event) {
+    const files = event.target.files
+    if (status !== 'ready' || busy || !pyodide || !files?.length) return
+
+    setBusy(true)
+    setError('')
+
+    try {
+      const result = await runQueued(() =>
+        uploadSpectrumFiles(pyodide, files, selection, virtualSpectra),
+      )
+
+      setQueryState({
+        selection: result.nextSelection,
+        virtualSpectra: result.nextVirtual,
+      })
+
+      if (result.failures.length) {
+        setError(result.failures.join('\n'))
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setBusy(false)
+      event.target.value = ''
     }
   }
 
@@ -616,7 +670,7 @@ export default function Query() {
             className="query-input"
             type="search"
             value={draftQuery}
-            onChange={(event) => setDraftQuery(event.target.value)}
+            onChange={handleSearchInputChange}
             placeholder='e.g. "2200" or "Clay"'
             disabled={status !== 'ready' || busy}
           />
@@ -661,44 +715,47 @@ export default function Query() {
 
       <div className="query-panels">
         <div
-          className={`query-tab-panel${activeTab === 'selected' ? ' query-tab-panel--selected' : ''}`}
+          className={`query-tab-panel${!hasActiveSearch || activeTab === 'selected' ? ' query-tab-panel--selected' : ''}${!hasActiveSearch ? ' query-tab-panel--solo' : ''}`}
         >
-          <div className="query-tabs" role="tablist" aria-label="Query results">
-            <button
-              type="button"
-              id="query-tab-results"
-              role="tab"
-              className={`query-tab${activeTab === 'results' ? ' query-tab--active' : ''}`}
-              aria-selected={activeTab === 'results'}
-              aria-controls="query-tabpanel-results"
-              onClick={() => setActiveTab('results')}
-            >
-              <span className="query-tab-label">Results</span>
-              <span className="query-tab-meta">{rangeLabel}</span>
-            </button>
-            <button
-              type="button"
-              id="query-tab-selected"
-              role="tab"
-              className={`query-tab${activeTab === 'selected' ? ' query-tab--active' : ''}`}
-              aria-selected={activeTab === 'selected'}
-              aria-controls="query-tabpanel-selected"
-              onClick={() => setActiveTab('selected')}
-            >
-              <span className="query-tab-label">Selected</span>
-              <span className="query-tab-meta">
-                {selection.length === 0 ? 'None' : `${selection.length} selected`}
-              </span>
-            </button>
-          </div>
+          {hasActiveSearch ? (
+            <div className="query-tabs" role="tablist" aria-label="Query results">
+              <button
+                type="button"
+                id="query-tab-results"
+                role="tab"
+                className={`query-tab${activeTab === 'results' ? ' query-tab--active' : ''}`}
+                aria-selected={activeTab === 'results'}
+                aria-controls="query-tabpanel-results"
+                onClick={() => setActiveTab('results')}
+              >
+                <span className="query-tab-label">Results</span>
+                <span className="query-tab-meta">{rangeLabel}</span>
+              </button>
+              <button
+                type="button"
+                id="query-tab-selected"
+                role="tab"
+                className={`query-tab${activeTab === 'selected' ? ' query-tab--active' : ''}`}
+                aria-selected={activeTab === 'selected'}
+                aria-controls="query-tabpanel-selected"
+                onClick={() => setActiveTab('selected')}
+              >
+                <span className="query-tab-label">Selected</span>
+                <span className="query-tab-meta">
+                  {selection.length === 0 ? 'None' : `${selection.length} selected`}
+                </span>
+              </button>
+            </div>
+          ) : null}
 
-          <div
-            id="query-tabpanel-results"
-            role="tabpanel"
-            aria-labelledby="query-tab-results"
-            hidden={activeTab !== 'results'}
-            className="query-tab-content"
-          >
+          {hasActiveSearch ? (
+            <div
+              id="query-tabpanel-results"
+              role="tabpanel"
+              aria-labelledby="query-tab-results"
+              hidden={activeTab !== 'results'}
+              className="query-tab-content"
+            >
             <div className="query-results-panel">
               <ul className="query-results" role="list">
                 {visibleResults.length === 0 ? (
@@ -766,12 +823,13 @@ export default function Query() {
               </button>
             </div>
           </div>
+          ) : null}
 
           <div
             id="query-tabpanel-selected"
             role="tabpanel"
-            aria-labelledby="query-tab-selected"
-            hidden={activeTab !== 'selected'}
+            aria-labelledby={hasActiveSearch ? 'query-tab-selected' : undefined}
+            hidden={hasActiveSearch && activeTab !== 'selected'}
             className="query-tab-content query-tab-content--selected"
           >
             <div
@@ -779,6 +837,25 @@ export default function Query() {
             >
               <div className="query-results-header">
                 <div className="query-selected-actions">
+                  <input
+                    ref={uploadInputRef}
+                    className="query-upload-input"
+                    type="file"
+                    accept=".txt,.csv,text/plain,text/csv"
+                    multiple
+                    hidden
+                    onChange={(event) => void handleUploadSelected(event)}
+                  />
+                  <span data-tooltip={UPLOAD_TOOLTIP}>
+                    <button
+                      type="button"
+                      className="query-selected-action"
+                      onClick={handleUploadClick}
+                      disabled={busy || status !== 'ready'}
+                    >
+                      Upload
+                    </button>
+                  </span>
                   <span data-tooltip={DOWNLOAD_TOOLTIP}>
                     <button
                       type="button"

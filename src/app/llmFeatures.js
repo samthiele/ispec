@@ -8,12 +8,27 @@ function formatScorePercent(score) {
   return `${(Number(score) * 100).toFixed(1)}%`
 }
 
+export function formatWavelengthRange(range) {
+  if (!Array.isArray(range) || range.length < 2) {
+    return 'unknown range'
+  }
+
+  const start = Number(range[0])
+  const end = Number(range[1])
+  if (!Number.isFinite(start) || !Number.isFinite(end)) {
+    return 'unknown range'
+  }
+
+  return `${start.toFixed(0)}–${end.toFixed(0)} nm`
+}
+
 export function formatVisibleSearchResults({
   query,
   searchResults,
   slice,
   pageSize,
   selection = [],
+  wavelengthRanges = {},
 }) {
   const trimmedQuery = String(query ?? '').trim()
   if (!trimmedQuery || !searchResults?.total) {
@@ -36,8 +51,10 @@ export function formatVisibleSearchResults({
     const parsed = parseSpectrumName(name)
     const label = formatSpectrumDisplayName(parsed)
     const selectedNote = selectedSet.has(name) ? ' — selected (spectral features below)' : ''
+    const rangeText = formatWavelengthRange(wavelengthRanges[name])
     lines.push(`${rank}. ${label} — match ${formatScorePercent(score)}${selectedNote}`)
     lines.push(`   Canonical name: ${name}`)
+    lines.push(`   Coverage: ${rangeText}`)
   }
 
   return lines.join('\n')
@@ -94,6 +111,7 @@ export function buildLlmSpectralContext({
   slice,
   pageSize,
   selection = [],
+  wavelengthRanges = {},
 }) {
   const resultsText = formatVisibleSearchResults({
     query,
@@ -101,6 +119,7 @@ export function buildLlmSpectralContext({
     slice,
     pageSize,
     selection,
+    wavelengthRanges,
   })
 
   const selectionText = formatSpectralFeaturesSummary(selectionExport)
@@ -111,6 +130,7 @@ export function buildLlmSpectralContext({
     resultsText,
     '',
     'Use canonical names from this list when proposing selection in `ispec-state` blocks.',
+    'When several matches are similarly good, prefer spectra with the widest wavelength coverage unless the user asked for a specific band or instrument range.',
     '',
     '---',
     '',

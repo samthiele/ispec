@@ -10,7 +10,28 @@ import {
   clearPythonSearch,
   runPythonSearch,
 } from './querySync.js'
-import { rebuildVirtualSpectraFromRecipes } from './selectionSync.js'
+import { hasSavedSpectraView } from './spectraState.js'
+import { rebuildVirtualSpectraFromRecipes, syncPythonVirtualSpectra } from './selectionSync.js'
+import { normalizeVirtualSpectra } from './virtualSpectra.js'
+
+function selectionOrRecipesChanged(currentState, nextState) {
+  return (
+    JSON.stringify(currentState.selection) !== JSON.stringify(nextState.selection)
+    || JSON.stringify(currentState.virtualMixRecipes ?? {})
+      !== JSON.stringify(nextState.virtualMixRecipes ?? {})
+  )
+}
+
+function incomingSpecifiesSpectraView(incomingRaw) {
+  if (!Array.isArray(incomingRaw?.panes)) return false
+  return incomingRaw.panes.some(
+    (pane) => pane?.type === 'spectra' && hasSavedSpectraView(pane.state ?? {}),
+  )
+}
+
+function resetSpectraPaneViews(panes) {
+  return panes.map((pane) => (pane.type === 'spectra' ? { ...pane, state: {} } : pane))
+}
 
 export async function hydrateSharedAppState(
   pyodide,
@@ -43,13 +64,28 @@ export async function hydrateSharedAppState(
     selection: next.selection,
   })
 
-  const virtualSpectra = await rebuildVirtualSpectraFromRecipes(
+  const mixSpectra = await rebuildVirtualSpectraFromRecipes(
     pyodide,
     next.virtualMixRecipes ?? {},
+    { selection: next.selection, selectionMeta: next.selectionMeta ?? {} },
   )
+  const storedSpectra = normalizeVirtualSpectra(next.virtualSpectra ?? {}, next.selection)
+  const virtualSpectra = { ...storedSpectra, ...mixSpectra }
+  await syncPythonVirtualSpectra(pyodide, virtualSpectra)
+
+  let state = { ...next, virtualSpectra }
+  if (
+    selectionOrRecipesChanged(currentState, next)
+    && !incomingSpecifiesSpectraView(incomingRaw)
+  ) {
+    state = {
+      ...state,
+      panes: resetSpectraPaneViews(state.panes),
+    }
+  }
 
   return {
-    state: { ...next, virtualSpectra },
+    state,
     searchResults,
   }
 }

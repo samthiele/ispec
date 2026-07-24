@@ -39,6 +39,13 @@ export function formatSpectrumDisplayName({ archive, group, sampleId }, groupOve
   return label
 }
 
+export function spectrumHoverLabel(name, selectionMeta) {
+  if (!name) return ''
+  const parsed = parseSpectrumName(name)
+  const group = selectionMeta?.[name]?.group ?? parsed.group
+  return formatSpectrumDisplayName(parsed, group)
+}
+
 export function lookupNameForSpectrum(canonical, selectionMeta) {
   const parsed = parseSpectrumName(canonical)
   const entry = selectionMeta?.[canonical]

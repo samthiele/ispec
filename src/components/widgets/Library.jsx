@@ -189,6 +189,12 @@ export default function Library() {
               <span className="library-details-label">File</span>
               <code>{selectedLibrary.file}</code>
             </p>
+            {Array.isArray(selectedLibrary.group) && selectedLibrary.group.length > 0 ? (
+              <p className="library-details-meta">
+                <span className="library-details-label">Groups</span>
+                {selectedLibrary.group.join(', ')}
+              </p>
+            ) : null}
             {selectedLibrary.default ? (
               <p className="library-details-meta">
                 <span className="library-details-label">Default</span>

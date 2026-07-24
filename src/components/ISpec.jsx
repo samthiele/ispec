@@ -130,13 +130,13 @@ function ISpecShell({ shareNotice, onShareNotice }) {
   )
 }
 
-export default function ISpec({ bootstrapAppState, ...props }) {
+export default function ISpec({ bootstrapAppState, libraryGroup = null, ...props }) {
   const pyodideBootstrapRef = useRef(
     normalizeAppState(bootstrapAppState ?? undefined),
   )
 
   return (
-    <PyodideProvider initialAppState={pyodideBootstrapRef.current}>
+    <PyodideProvider initialAppState={pyodideBootstrapRef.current} libraryGroup={libraryGroup}>
       <LlmChatProvider>
         <ISpecShell {...props} />
       </LlmChatProvider>

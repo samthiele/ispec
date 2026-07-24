@@ -6,6 +6,7 @@
       "source": "https://www.usgs.gov/data/usgs-spectral-library-version-7-data",
       "description": "Mineral spectra measured with laboratory, field, and airborne spectrometers from the USGS Spectroscopy Lab.",
       "file": "usgs_minerals.fda",
+      "group": ["minerals"],
       "default": true
     },
     {
@@ -14,6 +15,7 @@
       "source": "https://www.usgs.gov/data/usgs-spectral-library-version-7-data",
       "description": "Vegetation spectra measured with laboratory, field, and airborne spectrometers from the USGS Spectroscopy Lab.",
       "file": "usgs_vegetation.fda",
+      "group": ["vegetation", "remotesensing"],
       "default": false
     },
     {
@@ -22,7 +24,71 @@
       "source": "https://speclib.jpl.nasa.gov/",
       "description": "Laboratory mineral spectra from the JPL ECOSTRESS/ASTER spectral library (VSWIR and TIR), grouped by USGS mineral family.",
       "file": "ecostress_minerals.fda",
+      "group": ["minerals"],
       "default": true
+    },
+    {
+      "id": "usgs_artificial",
+      "name": "USGS Spectral Library (V7) Chapter A: Artificial Materials",
+      "source": "https://www.usgs.gov/data/usgs-spectral-library-version-7-data",
+      "description": "Artificial and man-made material spectra from the USGS Spectroscopy Lab (plastics, paints, metals, etc.).",
+      "file": "usgs_artificial.fda",
+      "group": ["remotesensing"],
+      "default": false
+    },
+    {
+      "id": "usgs_coatings",
+      "name": "USGS Spectral Library (V7) Chapter C: Coatings",
+      "source": "https://www.usgs.gov/data/usgs-spectral-library-version-7-data",
+      "description": "Surface coating spectra (desert varnish, iron oxides, jarosite films, etc.).",
+      "file": "usgs_coatings.fda",
+      "group": ["mixtures", "remotesensing"],
+      "default": false
+    },
+    {
+      "id": "usgs_liquids",
+      "name": "USGS Spectral Library (V7) Chapter L: Liquids",
+      "source": "https://www.usgs.gov/data/usgs-spectral-library-version-7-data",
+      "description": "Liquid and frozen liquid spectra (water, ice, seawater, melting snow, etc.).",
+      "file": "usgs_liquids.fda",
+      "group": ["remotesensing"],
+      "default": false
+    },
+    {
+      "id": "usgs_organics",
+      "name": "USGS Spectral Library (V7) Chapter O: Organic Compounds",
+      "source": "https://www.usgs.gov/data/usgs-spectral-library-version-7-data",
+      "description": "Organic compound spectra from the USGS Spectroscopy Lab.",
+      "file": "usgs_organics.fda",
+      "group": ["polymers"],
+      "default": false
+    },
+    {
+      "id": "usgs_soils",
+      "name": "USGS Spectral Library (V7) Chapter S: Soils and Mixtures",
+      "source": "https://www.usgs.gov/data/usgs-spectral-library-version-7-data",
+      "description": "Soil, regolith, and mineral mixture spectra from the USGS Spectroscopy Lab.",
+      "file": "usgs_soils.fda",
+      "group": ["mixtures", "remotesensing"],
+      "default": false
+    },
+    {
+      "id": "hif_mineralogy",
+      "name": "HIF mineralogy library",
+      "source": "https://www.mdpi.com/2075-163X/16/7/674",
+      "description": "Concatenated VSWIR–MWIR–LWIR Specim SiSuROCK purest-pixel endmembers from coregistered MLA mineral maps (≥90% purity).",
+      "file": "hif_mineralogy.fda",
+      "group": ["minerals"],
+      "default": false
+    },
+    {
+      "id": "hif_mixtures",
+      "name": "HIF mineral mixtures library",
+      "source": "https://www.mdpi.com/2075-163X/16/7/674",
+      "description": "Average VSWIR–MWIR–LWIR Specim SiSuROCK spectra of MLA-blocks. MLA-indicated bulk composition is shown in the sample name.",
+      "file": "hif_mixtures.fda",
+      "group": ["mixtures"],
+      "default": false
     }
   ]
 }
