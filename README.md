@@ -2,7 +2,15 @@
 
 iSpec is a browser-based app for searching and visualising spectral libraries. It runs entirely in the client using [Pyodide](https://pyodide.org/) and [hylite](https://github.com/hifexplo/hylite), so no backend is required once the app and library files are served.
 
-**Live demo:** [https://samthiele.github.io/ispec/](https://samthiele.github.io/ispec/)
+**Main site:** [https://samthiele.github.io/ispec/](https://samthiele.github.io/ispec/)
+
+Several spectral libraries can be loaded into iSpec (see the **Library** widget), though the following links can be used for thematic defaults:
+
+- **Mineralogy** - [https://samthiele.github.io/ispec/#minerals](https://samthiele.github.io/ispec/#minerals)
+- **Mineral mixtures** - [https://samthiele.github.io/ispec/#mixtures](https://samthiele.github.io/ispec/#mixtures)
+- **Vegetation** - [https://samthiele.github.io/ispec/#vegetation](https://samthiele.github.io/ispec/#vegetation)
+- **Environmental Remote Sensing** - [https://samthiele.github.io/ispec/#remotesensing](https://samthiele.github.io/ispec/#remotesensing)
+- **Polymers and related compounds** - [https://samthiele.github.io/ispec/#polymers](https://samthiele.github.io/ispec/#polymers)
 
 ## What it does
 
