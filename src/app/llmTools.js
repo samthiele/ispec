@@ -3,6 +3,8 @@ import {
   applyPythonQueryState,
   clearPythonSearch,
   DEFAULT_CONFIDENCE,
+  formatSearchScore,
+  referenceSearchRunOptions,
   runPythonSearch,
 } from './querySync.js'
 import { formatSpectrumDisplayName, parseSpectrumName } from './selectionMeta.js'
@@ -22,7 +24,7 @@ export const ISPEC_LLM_TOOL_DECLARATIONS = [
         query: {
           type: 'string',
           description:
-            'Feature search query (e.g. "tremolite", "2200", "^8000P", "kaolinite|dolomite"). Same syntax as the Query widget.',
+            'Feature search query (e.g. "tremolite", "2200", "^8000P", "kaolinite|dolomite", "SAM(2000-2500)", "FIT(2160-2200)", "CORR(2000-2500)", "SID(2000-2500)"). Same syntax as the Query widget.',
         },
         confidence: {
           type: 'number',
@@ -38,8 +40,8 @@ export const ISPEC_LLM_TOOL_DECLARATIONS = [
   },
 ]
 
-function formatScorePercent(score) {
-  return `${(Number(score) * 100).toFixed(1)}%`
+function formatScorePercent(score, query) {
+  return formatSearchScore(score, query)
 }
 
 export function formatSearchToolMatches(searchResults, { query, limit = 20, wavelengthRanges = {} } = {}) {
@@ -58,7 +60,7 @@ export function formatSearchToolMatches(searchResults, { query, limit = 20, wave
       name,
       label: formatSpectrumDisplayName(parsed),
       score: Number(score),
-      score_percent: formatScorePercent(score),
+      score_percent: formatScorePercent(score, query),
       wavelength_range_nm: Array.isArray(range) ? range : null,
       wavelength_start_nm: Number.isFinite(start) ? start : null,
       wavelength_end_nm: Number.isFinite(end) ? end : null,
@@ -75,18 +77,27 @@ export function formatSearchToolMatches(searchResults, { query, limit = 20, wave
 }
 
 export async function restorePythonSearchContext(pyodide, appSnapshot) {
-  const query = String(appSnapshot?.query ?? '').trim()
-  if (query) {
-    await runPythonSearch(pyodide, query, appSnapshot?.confidence ?? DEFAULT_CONFIDENCE)
-  } else {
-    await clearPythonSearch(pyodide)
-  }
-
   await applyPythonQueryState(pyodide, {
     query: appSnapshot?.query ?? '',
     slice: appSnapshot?.slice,
     selection: appSnapshot?.selection,
   })
+
+  const query = String(appSnapshot?.query ?? '').trim()
+  if (query) {
+    await runPythonSearch(
+      pyodide,
+      query,
+      appSnapshot?.confidence ?? DEFAULT_CONFIDENCE,
+      referenceSearchRunOptions(
+        query,
+        appSnapshot?.selection,
+        appSnapshot?.selectionMeta,
+      ),
+    )
+  } else {
+    await clearPythonSearch(pyodide)
+  }
 }
 
 export async function executeSearchSpectraTool(pyodide, args, appSnapshot) {
@@ -101,7 +112,13 @@ export async function executeSearchSpectraTool(pyodide, args, appSnapshot) {
   }
 
   try {
-    const searchResults = await runPythonSearch(pyodide, query, confidence)
+    const searchResults = await runPythonSearch(pyodide, query, confidence, {
+      ...referenceSearchRunOptions(
+        query,
+        appSnapshot?.selection,
+        appSnapshot?.selectionMeta,
+      ),
+    })
     const limit = Math.min(Math.max(1, Number(args?.limit) || 20), 50)
     const names = searchResults.names.slice(0, Math.min(searchResults.total, limit))
     const wavelengthRanges = await exportSpectrumWavelengthRanges(pyodide, names)

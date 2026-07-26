@@ -120,11 +120,421 @@ def _merge_or_search_results(query_results):
     return merged_names, merged_scores
 
 
-def run_search(query, confidence=10.0, n_result=10000):
+def _parse_reference_search_query(query):
+    import re
+
+    match = re.match(
+        r"^(SAM|FIT|CORR|SID)\\s*\\(\\s*(\\d+(?:\\.\\d+)?)\\s*-\\s*(\\d+(?:\\.\\d+)?)\\s*\\)\\s*$",
+        str(query).strip(),
+        flags=re.IGNORECASE,
+    )
+    if not match:
+        return None
+    wav_min = float(match.group(2))
+    wav_max = float(match.group(3))
+    if wav_max <= wav_min:
+        raise ValueError("Search range must have max wavelength greater than min.")
+    return str(match.group(1)).upper(), wav_min, wav_max
+
+
+def _parse_sam_query(query):
+    parsed = _parse_reference_search_query(query)
+    if parsed is None or parsed[0] != "SAM":
+        return None
+    return parsed[1], parsed[2]
+
+
+def _reference_search_names(reference_name=None, method="SAM"):
+    label = str(method).upper()
+    if reference_name is not None:
+        name = str(reference_name).strip()
+        if name:
+            if name not in selection:
+                raise ValueError(
+                    "%s reference spectrum %r is not in the current selection." % (label, name)
+                )
+            return [name]
+    if not selection:
+        raise ValueError(
+            "%s search requires at least one selected reference spectrum." % label
+        )
+    return [str(selection[-1])]
+
+
+def _common_wav_grid(wav_min, wav_max, n_points=200):
+    import numpy as np
+
+    return np.linspace(float(wav_min), float(wav_max), int(n_points), dtype=np.float64)
+
+
+def _spectrum_vector_in_range(name, common_wav, lookup_map=None):
+    import numpy as np
+
+    wav, refl = _spectrum_series(name, lookup_map or {})
+    refl_frac = _reflectance_fraction(refl)
+    interp = np.interp(
+        common_wav,
+        wav,
+        refl_frac,
+        left=np.nan,
+        right=np.nan,
+    )
+    if not np.isfinite(interp).all():
+        raise ValueError(
+            "Spectrum %r does not fully cover the search wavelength range." % name
+        )
+    return interp
+
+
+def _continuum_remove_vector(values):
+    import numpy as np
+
+    y = np.asarray(values, dtype=np.float64)
+    if y.size < 3:
+        return None
+    x = np.linspace(0.0, 1.0, y.size, dtype=np.float64)
+    continuum = y[0] + (y[-1] - y[0]) * x
+    if not np.all(np.isfinite(continuum)) or np.any(continuum <= 0):
+        return None
+    return y / continuum
+
+
+def _pearson_correlation(left, right):
+    import numpy as np
+
+    a = np.asarray(left, dtype=np.float64)
+    b = np.asarray(right, dtype=np.float64)
+    a = a - a.mean()
+    b = b - b.mean()
+    denom = float(np.linalg.norm(a) * np.linalg.norm(b))
+    if denom <= 0:
+        return None
+    return float(np.dot(a, b) / denom)
+
+
+def _tetracorder_fit(reference, library):
+    import numpy as np
+
+    ref = np.asarray(reference, dtype=np.float64)
+    lib = np.asarray(library, dtype=np.float64)
+    denom = float(np.dot(lib, lib))
+    if denom <= 0:
+        return None
+    scale = float(np.dot(ref, lib)) / denom
+    return _pearson_correlation(ref, lib * scale)
+
+
+def _spectral_information_divergence(left, right):
+    import numpy as np
+
+    a = np.clip(np.asarray(left, dtype=np.float64), 0.0, None)
+    b = np.clip(np.asarray(right, dtype=np.float64), 0.0, None)
+    sum_a = float(a.sum())
+    sum_b = float(b.sum())
+    if sum_a <= 0 or sum_b <= 0:
+        return None
+    p = a / sum_a
+    q = b / sum_b
+    eps = 1e-12
+    p = np.clip(p, eps, None)
+    q = np.clip(q, eps, None)
+    return float(np.sum(p * np.log(p / q) + q * np.log(q / p)))
+
+
+def _continuum_remove_matrix(values):
+    import numpy as np
+
+    y = np.asarray(values, dtype=np.float64)
+    if y.ndim == 1:
+        cr = _continuum_remove_vector(y)
+        if cr is None:
+            return None, np.array([False], dtype=bool)
+        return cr.reshape(1, -1), np.array([True], dtype=bool)
+    if y.shape[1] < 3:
+        return None, np.zeros(y.shape[0], dtype=bool)
+    x = np.linspace(0.0, 1.0, y.shape[1], dtype=np.float64)
+    continuum = y[:, :1] + (y[:, -1:] - y[:, :1]) * x
+    valid = np.all(np.isfinite(continuum), axis=1) & np.all(continuum > 0, axis=1)
+    out = np.full_like(y, np.nan)
+    if valid.any():
+        out[valid] = y[valid] / continuum[valid]
+    return out, valid
+
+
+def _reflectance_fraction_matrix(values):
+    import numpy as np
+
+    refl = np.asarray(values, dtype=np.float64)
+    if refl.ndim == 1:
+        return _reflectance_fraction(refl)
+    if np.nanmax(refl) > 2.0:
+        refl = refl / 100.0
+    return np.nan_to_num(refl, nan=0.0)
+
+
+def _archive_wavelength_bounds(hyf):
+    import numpy as np
+
+    wav = np.asarray(hyf.get_wavelengths(), dtype=np.float64).reshape(-1)
+    if wav.size == 0:
+        return None, None
+    if np.nanmax(wav) <= 100.0:
+        wav = wav * 1000.0
+    return float(np.nanmin(wav)), float(np.nanmax(wav))
+
+
+def _pearson_correlation_matrix(ref, libs):
+    import numpy as np
+
+    ref = np.asarray(ref, dtype=np.float64)
+    libs = np.asarray(libs, dtype=np.float64)
+    ref_c = ref - ref.mean()
+    ref_norm = float(np.linalg.norm(ref_c))
+    if ref_norm <= 0:
+        return None
+    lib_c = libs - libs.mean(axis=1, keepdims=True)
+    lib_norms = np.linalg.norm(lib_c, axis=1)
+    return (lib_c @ ref_c) / np.maximum(lib_norms * ref_norm, 1e-12)
+
+
+def _tetracorder_fit_matrix(ref_cr, lib_cr):
+    import numpy as np
+
+    ref = np.asarray(ref_cr, dtype=np.float64)
+    libs = np.asarray(lib_cr, dtype=np.float64)
+    denom = np.sum(libs * libs, axis=1)
+    scale = np.sum(libs * ref, axis=1) / np.maximum(denom, 1e-12)
+    return _pearson_correlation_matrix(ref, libs * scale[:, None])
+
+
+def _sid_similarity_matrix(refs, libs):
+    import numpy as np
+
+    refs = np.asarray(refs, dtype=np.float64)
+    libs = np.asarray(libs, dtype=np.float64)
+    best = np.full(libs.shape[0], np.inf, dtype=np.float64)
+    for ref in refs:
+        a = np.clip(ref, 0.0, None)
+        b = np.clip(libs, 0.0, None)
+        sum_a = float(a.sum())
+        if sum_a <= 0:
+            continue
+        sum_b = b.sum(axis=1)
+        valid = sum_b > 0
+        if not valid.any():
+            continue
+        p = a / sum_a
+        q = b[valid] / sum_b[valid][:, None]
+        eps = 1e-12
+        p = np.clip(p, eps, None)
+        q = np.clip(q, eps, None)
+        sid = np.sum(p * np.log(p / q) + q * np.log(q / p), axis=1)
+        slot = np.where(valid)[0]
+        best[slot] = np.minimum(best[slot], sid)
+    if not np.isfinite(best).any():
+        return None
+    return 1.0 / (1.0 + best)
+
+
+def _reference_search_scores_batch(method, reference_vectors, refl_matrix):
+    import numpy as np
+
+    method = str(method).upper()
+    matrix = np.asarray(refl_matrix, dtype=np.float64)
+    refs = np.asarray(reference_vectors, dtype=np.float64)
+    if matrix.ndim != 2 or matrix.size == 0:
+        return None
+
+    if method == "SAM":
+        from hylite.analyse.sam import spectral_angles
+
+        angles = spectral_angles(refs, matrix)
+        return np.cos(np.min(angles, axis=0))
+
+    if method == "CORR":
+        scores = np.full(matrix.shape[0], -np.inf, dtype=np.float64)
+        for ref in refs:
+            corr = _pearson_correlation_matrix(ref, matrix)
+            if corr is not None:
+                scores = np.maximum(scores, corr)
+        scores[~np.isfinite(scores) | (scores == -np.inf)] = np.nan
+        return scores
+
+    if method == "FIT":
+        lib_cr, valid = _continuum_remove_matrix(matrix)
+        if lib_cr is None or not valid.any():
+            return None
+        scores = np.full(matrix.shape[0], -np.inf, dtype=np.float64)
+        for ref in refs:
+            ref_cr = _continuum_remove_vector(ref)
+            if ref_cr is None:
+                continue
+            fits = _tetracorder_fit_matrix(ref_cr, lib_cr[valid])
+            if fits is None:
+                continue
+            slot = np.where(valid)[0]
+            scores[slot] = np.maximum(scores[slot], fits)
+        scores[~np.isfinite(scores) | (scores == -np.inf)] = np.nan
+        return scores
+
+    if method == "SID":
+        return _sid_similarity_matrix(refs, matrix)
+
+    raise ValueError("Unknown reference search method %r." % method)
+
+
+def _push_reference_candidates(store, names, scores, n_keep):
+    import heapq
+    import numpy as np
+
+    for name, score in zip(names, np.asarray(scores, dtype=np.float64)):
+        if not np.isfinite(score):
+            continue
+        value = float(score)
+        if n_keep <= 0:
+            store.append((name, value))
+            continue
+        if len(store) < n_keep:
+            heapq.heappush(store, (value, name))
+        elif value > store[0][0]:
+            heapq.heapreplace(store, (value, name))
+
+
+def run_reference_search(
+    method,
+    wav_min,
+    wav_max,
+    reference_name=None,
+    lookup_map=None,
+    n_result=10000,
+):
+    from hylite.analyse.fourier import _formatArchiveSampleName, _sampleNames
+    import heapq
+    import numpy as np
+
+    method = str(method).upper()
+    lookup_map = lookup_map or {}
+    ref_names = _reference_search_names(reference_name, method=method)
+    common_wav = _common_wav_grid(wav_min, wav_max)
+
+    ref_vectors = [
+        _spectrum_vector_in_range(ref_name, common_wav, lookup_map)
+        for ref_name in ref_names
+    ]
+    skip_names = set(ref_names)
+    n_keep = int(n_result) if n_result > 0 else 0
+    store = []
+
+    for archive_key, hyf in library.items():
+        arch_lo, arch_hi = _archive_wavelength_bounds(hyf)
+        if arch_lo is not None and arch_hi is not None:
+            if arch_hi < wav_min or arch_lo > wav_max:
+                continue
+
+        labels = _sampleNames(
+            hyf.header,
+            hyf.n_spectra,
+            hyf.original_shape,
+            hyf.spatial_shape,
+        )
+        batch_labels = []
+        batch_names = []
+        for row, label in enumerate(labels):
+            if not hyf._valid[row]:
+                continue
+            display_name = _formatArchiveSampleName(str(archive_key), str(label))
+            if display_name in skip_names:
+                continue
+            batch_labels.append(str(label))
+            batch_names.append(display_name)
+
+        if not batch_labels:
+            continue
+
+        try:
+            hylib = hyf.getSpectra(batch_labels, wav=common_wav)
+            data = np.asarray(hylib.data, dtype=np.float64)
+            if data.ndim == 3:
+                refl_matrix = data[:, 0, :]
+            elif data.ndim == 2:
+                refl_matrix = data
+            else:
+                continue
+            refl_matrix = _reflectance_fraction_matrix(refl_matrix)
+            valid_mask = np.isfinite(refl_matrix).all(axis=1)
+            if not valid_mask.any():
+                continue
+
+            scores = _reference_search_scores_batch(
+                method,
+                ref_vectors,
+                refl_matrix[valid_mask],
+            )
+            if scores is None:
+                continue
+            valid_names = [name for name, ok in zip(batch_names, valid_mask) if ok]
+            _push_reference_candidates(store, valid_names, scores, n_keep)
+        except Exception:
+            continue
+
+    if n_keep > 0:
+        candidates = sorted(store, key=lambda item: item[0], reverse=True)
+        names = [name for _score, name in candidates]
+        scores = [score for score, _name in candidates]
+    else:
+        candidates = sorted(store, key=lambda item: item[1], reverse=True)
+        names = [name for name, _score in candidates]
+        scores = [score for _name, score in candidates]
+
+    print(
+        f"{method} {wav_min:g}-{wav_max:g} nm vs {ref_names!r}: {len(names)} matches"
+    )
+    return names, scores
+
+
+def run_sam_search(
+    wav_min,
+    wav_max,
+    reference_name=None,
+    lookup_map=None,
+    n_result=10000,
+):
+    return run_reference_search(
+        "SAM",
+        wav_min,
+        wav_max,
+        reference_name=reference_name,
+        lookup_map=lookup_map,
+        n_result=n_result,
+    )
+
+
+def run_search(
+    query,
+    confidence=10.0,
+    n_result=10000,
+    reference_name=None,
+    lookup_map=None,
+):
     global result
     query = str(query).strip()
     if not query:
         return clear_search()
+
+    parsed = _parse_reference_search_query(query)
+    if parsed is not None:
+        method, wav_min, wav_max = parsed
+        names, scores = run_reference_search(
+            method,
+            wav_min,
+            wav_max,
+            reference_name=reference_name,
+            lookup_map=lookup_map or {},
+            n_result=n_result,
+        )
+        result = (names, scores)
+        return export_search_result()
+
     confidence = float(confidence)
     if confidence <= 0:
         raise ValueError("confidence must be positive.")

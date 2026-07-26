@@ -254,8 +254,11 @@ export default function LLM() {
         slice: appState.slice,
         pageSize: appState.pageSize,
         total: searchResults?.total ?? 0,
-        names: searchResults?.names ?? [],
-        scores: searchResults?.scores ?? [],
+        visible: searchResults
+          ? searchResults.names.slice(
+              ...clampSlice(appState.slice, searchResults.total, appState.pageSize),
+            )
+          : [],
       }),
     [appState.pageSize, appState.query, appState.slice, searchResults],
   )

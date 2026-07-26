@@ -31,26 +31,35 @@ import { resultNameStyle } from '../../app/spectraStyling.js'
 import {
   addPythonSelection,
   applyPythonQueryState,
+  buildReferenceSearchQuery,
   clearPythonSearch,
+  formatSearchScore,
   initialSlice,
   clampSlice,
+  isReferenceSearchQuery,
   nextSlice,
   previousSlice,
+  referenceSpectrumName,
   removePythonSelection,
   runPythonSearch,
 } from '../../app/querySync.js'
+import { exportSpectrumWavelengthRanges } from '../../app/llmSync.js'
+import { resolveSpectraXExtent } from '../../app/spectraState.js'
 import { useLongPress } from '../../app/useLongPress.js'
 import { useCoreAppState } from '../../context/useAppState.js'
 import { useInteraction } from '../../context/useInteraction.js'
 import { usePyodide } from '../../context/usePyodide.js'
 import SensorResampleMenu from '../SensorResampleMenu.jsx'
+import MatchMenu from '../MatchMenu.jsx'
 import './Query.css'
 
 const COLOR_COMMIT_MS = 250
 const MIX_COMMIT_MS = 250
 
 const SEARCH_TOOLTIP =
-  'Search by name or absorption. Use | to OR several queries (results interleaved by rank). Exclude features using ! and add ^ to search for peaks. Ranges can be specified as X-Y.'
+  'Search by name or absorption. Use | to OR several queries (results interleaved by rank). Exclude features using ! and add ^ to search for peaks. Ranges can be specified as X-Y. SAM(2000-2500), FIT(2160-2200), CORR(2000-2500), and SID(2000-2500) rank library spectra against the most recently selected spectrum over that range.'
+const MATCH_TOOLTIP =
+  'Run a reference-spectrum match over the Spectra plot x-axis range, using the most recently selected spectrum as reference. Requires at least one selected spectrum.'
 const CONFIDENCE_TOOLTIP =
   'Default uncertainty (± nm) when matching absorption features in a search.'
 const DOWNLOAD_TOOLTIP =
@@ -79,8 +88,8 @@ function parsePositiveNumber(value, fallback) {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback
 }
 
-function formatScorePercent(score) {
-  return `${(Number(score) * 100).toFixed(1)}%`
+function formatScorePercent(score, query) {
+  return formatSearchScore(score, query)
 }
 
 const SELECT_ACTION_HINT = 'Double-click or long-press to select'
@@ -90,6 +99,7 @@ function QueryResultItem({
   rank,
   name,
   score,
+  query,
   isSelected,
   isHovered,
   nameStyle,
@@ -111,7 +121,7 @@ function QueryResultItem({
       <span className="query-result-name" style={nameStyle}>
         {name}
       </span>
-      <span className="query-result-score">{formatScorePercent(score)}</span>
+      <span className="query-result-score">{formatScorePercent(score, query)}</span>
     </li>
   )
 }
@@ -206,6 +216,7 @@ export default function Query() {
   const [draftPageSize, setDraftPageSize] = useState(String(appState.pageSize))
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
+  const [activeTab, setActiveTab] = useState('results')
   const [colorDrafts, setColorDrafts] = useState({})
   const [mixDrafts, setMixDrafts] = useState({})
   const colorTimersRef = useRef({})
@@ -213,6 +224,10 @@ export default function Query() {
   const uploadInputRef = useRef(null)
   const selection = appState.selection
   const selectionMeta = appState.selectionMeta ?? {}
+  const lookupMap = useMemo(
+    () => buildLookupMap(selection, selectionMeta),
+    [selection, selectionMeta],
+  )
   const virtualSpectra = appState.virtualSpectra ?? {}
   const virtualMixRecipes = appState.virtualMixRecipes ?? {}
   const selectionMetaRef = useRef(selectionMeta)
@@ -334,13 +349,26 @@ export default function Query() {
     }
   }
 
+  async function executeSearch(query, { referenceName = null } = {}) {
+    const confidence = parsePositiveNumber(draftConfidence, appState.confidence)
+    const pageSize = parsePositiveNumber(draftPageSize, appState.pageSize)
+    const results = await runPythonSearch(pyodide, query, confidence, {
+      referenceName,
+      lookupMap,
+    })
+    const slice = initialSlice(results.total, pageSize)
+    setSearchResults(results)
+    setDraftQuery(query)
+    setQueryState({ query, slice, confidence, pageSize })
+    await syncPythonQuery(query, slice)
+    setActiveTab('results')
+  }
+
   async function handleSubmit(event) {
     event.preventDefault()
     if (status !== 'ready' || busy || !pyodide) return
 
     const query = draftQuery.trim()
-    const confidence = parsePositiveNumber(draftConfidence, appState.confidence)
-    const pageSize = parsePositiveNumber(draftPageSize, appState.pageSize)
 
     if (!query) {
       await clearSearchQuery()
@@ -352,12 +380,13 @@ export default function Query() {
 
     try {
       await runQueued(async () => {
-        const results = await runPythonSearch(pyodide, query, confidence)
-        const slice = initialSlice(results.total, pageSize)
-        setSearchResults(results)
-        setQueryState({ query, slice, confidence, pageSize })
-        await syncPythonQuery(query, slice)
-        setActiveTab('results')
+        const referenceName = isReferenceSearchQuery(query)
+          ? referenceSpectrumName(selection)
+          : null
+        if (isReferenceSearchQuery(query) && !referenceName) {
+          throw new Error('Reference search requires at least one selected reference spectrum.')
+        }
+        await executeSearch(query, { referenceName })
       })
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
@@ -603,6 +632,39 @@ export default function Query() {
     }
   }
 
+  async function handleReferenceMatch(method) {
+    if (status !== 'ready' || busy || !pyodide || selection.length === 0) return
+
+    const referenceName = referenceSpectrumName(selection)
+    if (!referenceName) {
+      setError('Reference match requires at least one selected reference spectrum.')
+      return
+    }
+
+    setBusy(true)
+    setError('')
+
+    try {
+      await runQueued(async () => {
+        let extent = resolveSpectraXExtent(appState)
+        if (!extent) {
+          const ranges = await exportSpectrumWavelengthRanges(pyodide, [referenceName], lookupMap)
+          extent = ranges[referenceName] ?? null
+        }
+        if (!extent) {
+          throw new Error('Could not determine the Spectra plot wavelength range for reference match.')
+        }
+
+        const query = buildReferenceSearchQuery(method, extent[0], extent[1])
+        await executeSearch(query, { referenceName })
+      })
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setBusy(false)
+    }
+  }
+
   async function handleMixSelected() {
     if (status !== 'ready' || busy || !pyodide || selection.length === 0) return
 
@@ -649,7 +711,6 @@ export default function Query() {
   }
 
   const mixComponentCount = buildMixComponents(selection, selectionMeta, resolvedMixPercents()).length
-  const [activeTab, setActiveTab] = useState('results')
 
   const rangeLabel =
     total > 0
@@ -784,6 +845,7 @@ export default function Query() {
                         rank={rank}
                         name={name}
                         score={score}
+                        query={appState.query}
                         isSelected={isSelected}
                         isHovered={isHovered}
                         nameStyle={nameStyle}
@@ -875,6 +937,15 @@ export default function Query() {
                     >
                       Mix
                     </button>
+                  </span>
+                  <span data-tooltip={MATCH_TOOLTIP}>
+                    <MatchMenu
+                      disabled={status !== 'ready' || selection.length === 0}
+                      busy={busy}
+                      onMatch={(method) => {
+                        void handleReferenceMatch(method)
+                      }}
+                    />
                   </span>
                   <span data-tooltip={RESAMPLE_TOOLTIP}>
                     <SensorResampleMenu

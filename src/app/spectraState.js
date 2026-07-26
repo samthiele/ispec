@@ -1,3 +1,5 @@
+import { SPECTRAL_BANDS } from './spectralBands.js'
+
 export const SPECTRA_PANE_STATE_KEYS = ['xDomain', 'yDomain', 'activeBand', 'applyHull']
 
 export const DEFAULT_SPECTRA_PANE_STATE = {
@@ -70,4 +72,30 @@ export function hasSavedSpectraView(state) {
     || merged.activeBand !== 'ALL'
     || merged.applyHull
   )
+}
+
+export function findSpectraPane(panes) {
+  return panes?.find((pane) => pane.type === 'spectra') ?? null
+}
+
+/** Plotted x extent from spectra pane state, or null if not determined. */
+export function resolveSpectraXExtent(appState, fallbackExtent = null) {
+  const merged = mergeSpectraPaneState(findSpectraPane(appState?.panes)?.state)
+  if (merged.xDomain && !isPlaceholderEmptyDomain(merged.xDomain)) {
+    return merged.xDomain
+  }
+  const band = merged.activeBand
+  if (band && band !== 'ALL' && SPECTRAL_BANDS[band]?.min != null) {
+    return [SPECTRAL_BANDS[band].min, SPECTRAL_BANDS[band].max]
+  }
+  if (
+    Array.isArray(fallbackExtent)
+    && fallbackExtent.length === 2
+    && Number.isFinite(fallbackExtent[0])
+    && Number.isFinite(fallbackExtent[1])
+    && fallbackExtent[1] > fallbackExtent[0]
+  ) {
+    return fallbackExtent
+  }
+  return null
 }

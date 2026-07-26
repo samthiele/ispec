@@ -12,20 +12,74 @@ Several spectral libraries can be loaded into iSpec (see the **Library** widget)
 - **Environmental Remote Sensing** - [https://samthiele.github.io/ispec/#remotesensing](https://samthiele.github.io/ispec/#remotesensing)
 - **Polymers and related compounds** - [https://samthiele.github.io/ispec/#polymers](https://samthiele.github.io/ispec/#polymers)
 
-## What it does
+## Quickstart
 
-iSpec lets you load one or more spectral libraries, search them by sample name or absorption features, and plot reflectance curves for query results and selected spectra. Libraries are stored as hylite Fourier archives (`.fda` files), which support fast feature-based search across large collections.
+iSpec lets you load one or more spectral libraries, search them by sample name or absorption features, compare spectra against a reference, and plot reflectance curves for query results and selected samples. Libraries are stored as [hylite](https://github.com/hifexplo/hylite) Fourier archives (`.fda` files), which support fast feature-based search across large collections.
 
-The main widgets are:
+Use **View Mode** in the header to switch layouts (**Tri**, **Bi**, or **Quad**) to match your screen size. **Share** copies a link that restores your query, libraries, selection, and display settings.
 
-- **Library** — browse available libraries and load or unload them into the session
-- **Query** — search loaded libraries; double-click results to add them to a selection list
-- **Spectra** — interactive reflectance plot with band presets, zoom, hull correction, and toggles for query vs selected spectra
-- **Console** — optional Python console for direct interaction with the loaded archive
+Use the drop down in the top-right of each view pane to select different widgets. Each of these are outlined below. 
 
-Selected spectra can be given custom group labels and colours. 
+### Library
 
-Use **Share** in the header to copy a link that restores your query, libraries, selection, and display settings.
+Load or unload libraries into the session. Double-click a catalog entry to load (or unload) it, after which it should appear in the appropriate list. Only loaded libraries are searched and plotted. 
+
+### Query
+
+Enter a search string and press **Search** (enter). Clear the query using the cross button to reset. 
+
+**Feature and name search**
+
+Several different search options are possible: 
+
+- Sample name: `Quartz`, `Clay` - find spectra matching all the provided (sub)strings
+- Absorption wavelength (nm): `2200` - find spectra with absorptions at all specified wavelengths
+- Wavelength range: `2100-2300` - match spectra with absorptions within the specified range
+- Exclude a feature: `!1400` - exclude spectra with features at the specified location
+- Search for peaks: prefix with `^` - combine with the above syntax to match or exclude peaks rather than absorption minima (e.g., in the LWIR).
+- Combine queries with `|` - combine different queries using a logical OR (results interleaved by rank)
+- SAM(2100-2300), FIT(...), CORR(...), SID(...) - find spectra that match the selected spectra across the specified wavelength range (see following section).
+
+**N.B.** Confidence sets the default wavelength uncertainty (± nm) when matching absorption features. Results are paginated to limit the number of spectra loaded at any one time; use **Prev** / **Next** to move through pages. Increase RESULTS PER PAGE to see more spectra on each page. 
+
+**Reference-spectrum search**:
+
+Match the most recently selected spectra against the loaded spectral libraries using the chosen algorithm:
+
+- `SAM` — spectral angle
+- `FIT` — continuum-removed shape fit (Tetracorder-style)
+- `CORR` — Pearson correlation
+- `SID` — spectral information divergence
+
+Note that these only use the spectral range currently visible in the SPECTRA viewer. Spectra that do not fully overlap this range will be ignored. 
+
+**Results and selection**
+
+Double-click (or long-press on mobile devices) a result to add it to the selection list. The **Selected** tab shows chosen spectra with editable group labels, colours, and mixture weights.
+
+**Selected actions**
+
+- **Upload** — add `.txt` / `.csv` virtual spectra (wavelength + reflectance columns). These can then be used for queries (e.g., spectral matching). 
+- **Download** — export selected spectra as text files. Note that these are lossily compressed, so **will not exactly match the original library spectra**.
+- **Mix** — build a weighted virtual mixture from selected spectra (≥ two with mix % > 0)
+- **Match** — reference-spectrum search over the Spectra x-range.
+- **Resample** — approximately resample to various satellite sensor resolutions.
+
+### Spectra
+
+Interactive reflectance plot for the current query page and/or selected spectra.
+
+- Toggle **Query** and **Selected** traces
+- **Hull** — continuum removal on the plotted range. Note that only spectra which entirely cover this range will be plotted.
+- **Save** the plot as PNG or SVG
+
+Hover a trace to highlight it across widgets.
+
+### Chat
+
+Gemini-powered assistant with context from your current search, selection, and spectral features. Ask questions about minerals, mixtures, or your loaded data. The assistant can propose new searches, mixtures or results — review and click **Apply** to update the app.
+
+Note that this requires a Google Gemini API key, which can be easily setup using a free Google account, following the instructions shown on first use.
 
 ## Spectral libraries
 
@@ -42,19 +96,11 @@ Libraries are described by a catalog file, `public/libraries/index.json`, and fe
 }
 ```
 
-New (public / open-access) spectral libraries can be quite easily added on request. 
+New (public / open-access) spectral libraries can be quite easily added on request.
 
-## Searching
+## Issues and contributions
 
-In the Query widget, enter a search string and press **Search**. Examples:
-
-- Sample name: `Quartz`, `Clay`
-- Absorption wavelength (nm): `2200`
-- Wavelength range: `2100-2300`
-- Exclude a feature: `!1400`
-- Search for peaks: prefix with `^`
-
-**Confidence** sets the default wavelength uncertainty (± nm) used when matching features. Results are paginated; double-click a result to select it for plotting.
+If you have issues, ideas or would like to contribute then please do get in touch via [Github Issues](https://github.com/samthiele/ispec/issues) or the [Discussions](https://github.com/samthiele/ispec/discussions) page.
 
 ## Credits
 

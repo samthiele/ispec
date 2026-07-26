@@ -23,7 +23,8 @@
   min-width: 0;
 }
 
-.ispec-share {
+.ispec-share,
+.ispec-help {
   font: inherit;
   font-size: 0.8rem;
   padding: 0.25rem 0.55rem;
@@ -31,9 +32,11 @@
   border-radius: 4px;
   background: var(--input-bg);
   color: var(--text-color);
+  text-decoration: none;
 }
 
-.ispec-share:hover {
+.ispec-share:hover,
+.ispec-help:hover {
   background: #3c4043;
 }
 

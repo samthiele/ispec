@@ -1,8 +1,92 @@
+import { buildLookupMap } from './selectionMeta.js'
+
 export const DEFAULT_CONFIDENCE = 10
 export const DEFAULT_PAGE_SIZE = 15
 
 const SEARCH_RANGE_RE = /^\d+(?:\.\d+)?-\d+(?:\.\d+)?$/
 const SEARCH_NUMBER_RE = /^\d+(?:\.\d+)?$/
+const REFERENCE_SEARCH_METHODS = ['SAM', 'FIT', 'CORR', 'SID']
+const REFERENCE_SEARCH_QUERY_RE =
+  /^(SAM|FIT|CORR|SID)\s*\(\s*(\d+(?:\.\d+)?)\s*-\s*(\d+(?:\.\d+)?)\s*\)\s*$/i
+
+export function parseReferenceSearchQuery(query) {
+  const match = REFERENCE_SEARCH_QUERY_RE.exec(String(query ?? '').trim())
+  if (!match) return null
+  const method = String(match[1]).toUpperCase()
+  const lo = Number(match[2])
+  const hi = Number(match[3])
+  if (!Number.isFinite(lo) || !Number.isFinite(hi) || hi <= lo) return null
+  return { method, wavMin: lo, wavMax: hi }
+}
+
+export function parseSamQuery(query) {
+  const parsed = parseReferenceSearchQuery(query)
+  if (!parsed || parsed.method !== 'SAM') return null
+  return [parsed.wavMin, parsed.wavMax]
+}
+
+export function isReferenceSearchQuery(query) {
+  return parseReferenceSearchQuery(query) != null
+}
+
+export function referenceSpectrumName(selection) {
+  if (!Array.isArray(selection) || selection.length === 0) return null
+  return String(selection[selection.length - 1])
+}
+
+export function referenceSearchRunOptions(query, selection, selectionMeta) {
+  if (!isReferenceSearchQuery(query)) return {}
+  return {
+    referenceName: referenceSpectrumName(selection),
+    lookupMap: buildLookupMap(selection, selectionMeta ?? {}),
+  }
+}
+
+export function isSamQuery(query) {
+  return parseSamQuery(query) != null
+}
+
+export function buildReferenceSearchQuery(method, wavMin, wavMax) {
+  const normalizedMethod = String(method ?? '').trim().toUpperCase()
+  if (!REFERENCE_SEARCH_METHODS.includes(normalizedMethod)) {
+    throw new Error(`Unknown reference search method ${method}.`)
+  }
+  const lo = Math.round(Number(wavMin))
+  const hi = Math.round(Number(wavMax))
+  if (!Number.isFinite(lo) || !Number.isFinite(hi) || hi <= lo) {
+    throw new Error(`Invalid wavelength range for ${normalizedMethod} search.`)
+  }
+  return `${normalizedMethod}(${lo}-${hi})`
+}
+
+export function buildSamQuery(wavMin, wavMax) {
+  return buildReferenceSearchQuery('SAM', wavMin, wavMax)
+}
+
+export function buildFitQuery(wavMin, wavMax) {
+  return buildReferenceSearchQuery('FIT', wavMin, wavMax)
+}
+
+export function buildCorrQuery(wavMin, wavMax) {
+  return buildReferenceSearchQuery('CORR', wavMin, wavMax)
+}
+
+export function buildSidQuery(wavMin, wavMax) {
+  return buildReferenceSearchQuery('SID', wavMin, wavMax)
+}
+
+export function formatSearchScore(score, query) {
+  if (!Number.isFinite(score)) return '—'
+  const parsed = parseReferenceSearchQuery(query)
+  if (parsed?.method === 'SAM') {
+    const radians = Math.acos(Math.max(-1, Math.min(1, score)))
+    return `${((radians * 180) / Math.PI).toFixed(1)}°`
+  }
+  if (parsed?.method === 'FIT' || parsed?.method === 'CORR' || parsed?.method === 'SID') {
+    return `${(Number(score) * 100).toFixed(1)}%`
+  }
+  return `${(Number(score) * 100).toFixed(1)}%`
+}
 
 /** Wavelengths (nm) referenced by numeric tokens in a spectral search query. */
 export function parseSearchQueryWavelengths(query) {
@@ -41,9 +125,21 @@ export async function exportSearchResult(pyodide) {
   return toSearchResult(exported)
 }
 
-export async function runPythonSearch(pyodide, query, confidence = DEFAULT_CONFIDENCE) {
+export async function runPythonSearch(
+  pyodide,
+  query,
+  confidence = DEFAULT_CONFIDENCE,
+  { referenceName = null, lookupMap = null } = {},
+) {
+  const lookupPayload =
+    lookupMap && typeof lookupMap === 'object' ? lookupMap : {}
+  const referencePayload =
+    referenceName != null && String(referenceName).trim()
+      ? JSON.stringify(String(referenceName))
+      : 'None'
+
   await pyodide.runPythonAsync(
-    `run_search(${JSON.stringify(query)}, confidence=${Number(confidence)})`,
+    `run_search(${JSON.stringify(query)}, confidence=${Number(confidence)}, reference_name=${referencePayload}, lookup_map=${JSON.stringify(lookupPayload)})`,
   )
   return exportSearchResult(pyodide)
 }

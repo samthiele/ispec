@@ -1,11 +1,11 @@
-import { clampSlice } from './querySync.js'
+import { clampSlice, formatSearchScore } from './querySync.js'
 import { formatSpectrumDisplayName, parseSpectrumName } from './selectionMeta.js'
 
 export const NO_SELECTION_SUMMARY =
   'No spectra selected. Answer general hyperspectral / mineralogy questions; suggest Query selection for sample-specific interpretation.'
 
-function formatScorePercent(score) {
-  return `${(Number(score) * 100).toFixed(1)}%`
+function formatScorePercent(score, query) {
+  return formatSearchScore(score, query)
 }
 
 export function formatWavelengthRange(range) {
@@ -52,7 +52,7 @@ export function formatVisibleSearchResults({
     const label = formatSpectrumDisplayName(parsed)
     const selectedNote = selectedSet.has(name) ? ' — selected (spectral features below)' : ''
     const rangeText = formatWavelengthRange(wavelengthRanges[name])
-    lines.push(`${rank}. ${label} — match ${formatScorePercent(score)}${selectedNote}`)
+    lines.push(`${rank}. ${label} — match ${formatScorePercent(score, trimmedQuery)}${selectedNote}`)
     lines.push(`   Canonical name: ${name}`)
     lines.push(`   Coverage: ${rangeText}`)
   }

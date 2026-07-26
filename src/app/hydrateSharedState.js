@@ -8,6 +8,8 @@ import {
   applyPythonQueryState,
   clampSlice,
   clearPythonSearch,
+  isReferenceSearchQuery,
+  referenceSearchRunOptions,
   runPythonSearch,
 } from './querySync.js'
 import { hasSavedSpectraView } from './spectraState.js'
@@ -50,10 +52,37 @@ export async function hydrateSharedAppState(
     await applyPythonUiLibraries(pyodide)
   }
 
+  const mixSpectra = await rebuildVirtualSpectraFromRecipes(
+    pyodide,
+    next.virtualMixRecipes ?? {},
+    { selection: next.selection, selectionMeta: next.selectionMeta ?? {} },
+  )
+  const storedSpectra = normalizeVirtualSpectra(next.virtualSpectra ?? {}, next.selection)
+  const virtualSpectra = { ...storedSpectra, ...mixSpectra }
+  await syncPythonVirtualSpectra(pyodide, virtualSpectra)
+
+  await applyPythonQueryState(pyodide, {
+    selection: next.selection,
+  })
+
   let searchResults = null
   if (next.query.trim()) {
-    searchResults = await runPythonSearch(pyodide, next.query, next.confidence)
-    next.slice = clampSlice(next.slice, searchResults.total, next.pageSize)
+    const refOptions = referenceSearchRunOptions(
+      next.query,
+      next.selection,
+      next.selectionMeta,
+    )
+    if (isReferenceSearchQuery(next.query) && !refOptions.referenceName) {
+      await clearPythonSearch(pyodide)
+    } else {
+      searchResults = await runPythonSearch(
+        pyodide,
+        next.query,
+        next.confidence,
+        refOptions,
+      )
+      next.slice = clampSlice(next.slice, searchResults.total, next.pageSize)
+    }
   } else {
     await clearPythonSearch(pyodide)
   }
@@ -63,15 +92,6 @@ export async function hydrateSharedAppState(
     slice: next.slice,
     selection: next.selection,
   })
-
-  const mixSpectra = await rebuildVirtualSpectraFromRecipes(
-    pyodide,
-    next.virtualMixRecipes ?? {},
-    { selection: next.selection, selectionMeta: next.selectionMeta ?? {} },
-  )
-  const storedSpectra = normalizeVirtualSpectra(next.virtualSpectra ?? {}, next.selection)
-  const virtualSpectra = { ...storedSpectra, ...mixSpectra }
-  await syncPythonVirtualSpectra(pyodide, virtualSpectra)
 
   let state = { ...next, virtualSpectra }
   if (

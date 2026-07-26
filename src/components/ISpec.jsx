@@ -100,6 +100,14 @@ function ISpecShell({ shareNotice, onShareNotice }) {
           <button type="button" className="ispec-share" onClick={handleShare}>
             Share
           </button>
+          <a
+            className="ispec-help"
+            href="https://github.com/samthiele/ispec/#quickstart"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            Help
+          </a>
         </div>
       </header>
       <main className="ispec-main">
