@@ -5,6 +5,11 @@ const SHOW_DELAY_MS = 350
 const GAP_PX = 6
 const VIEWPORT_PAD = 8
 
+function tooltipsEnabled() {
+  if (typeof window === 'undefined') return true
+  return !window.matchMedia('(hover: none), (pointer: coarse)').matches
+}
+
 function tooltipTarget(node) {
   return node?.closest?.('[data-tooltip]') ?? null
 }
@@ -19,8 +24,31 @@ export default function TooltipLayer() {
   const showTimerRef = useRef(null)
   const layerRef = useRef(null)
   const [tip, setTip] = useState(null)
+  const [enabled, setEnabled] = useState(tooltipsEnabled)
 
   useEffect(() => {
+    const media = window.matchMedia('(hover: none), (pointer: coarse)')
+    function update() {
+      setEnabled(!media.matches)
+    }
+    update()
+    media.addEventListener('change', update)
+    return () => media.removeEventListener('change', update)
+  }, [])
+
+  useEffect(() => {
+    if (enabled) return undefined
+    activeElRef.current = null
+    if (showTimerRef.current != null) {
+      window.clearTimeout(showTimerRef.current)
+      showTimerRef.current = null
+    }
+    setTip(null)
+  }, [enabled])
+
+  useEffect(() => {
+    if (!enabled) return undefined
+
     function clearShowTimer() {
       if (showTimerRef.current != null) {
         window.clearTimeout(showTimerRef.current)
@@ -120,10 +148,10 @@ export default function TooltipLayer() {
       window.removeEventListener('scroll', reposition, true)
       window.removeEventListener('resize', reposition)
     }
-  }, [])
+  }, [enabled])
 
   useLayoutEffect(() => {
-    if (!tip || !layerRef.current) return
+    if (!enabled || !tip || !layerRef.current) return
 
     const layer = layerRef.current
     const layerRect = layer.getBoundingClientRect()
@@ -142,9 +170,9 @@ export default function TooltipLayer() {
 
     layer.style.left = `${left}px`
     layer.style.top = `${top}px`
-  }, [tip])
+  }, [enabled, tip])
 
-  if (!tip) return null
+  if (!enabled || !tip) return null
 
   return createPortal(
     <div ref={layerRef} className="hover-tooltip-layer" role="tooltip">

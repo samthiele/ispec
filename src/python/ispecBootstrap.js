@@ -726,7 +726,7 @@ def _hull_correct_series(hydata, full_wav, full_refl, x_min, x_max):
     merged_refl = _merge_reflectance(full_wav, full_refl, corr_wav, corr_refl)
     return {
         "wavelengths": np.asarray(full_wav, dtype=np.float64).tolist(),
-        "reflectance": merged_refl.tolist(),
+        "reflectance": _reflectance_pct(merged_refl).tolist(),
     }
 
 

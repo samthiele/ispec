@@ -2,10 +2,14 @@ import { useCallback, useEffect, useDeferredValue, useMemo, useRef, useState } f
 import {
   applyHullCorrections,
   applyHullToSpectra,
+  clampPlotYDomainMin,
+  clipSpectraToXRange,
   computePlotExtents,
   exportSpectraPlotData,
   filterPlotSpectra,
   filterSpectraBySpan,
+  HULL_Y_DOMAIN,
+  normalizePlotYDomain,
 } from '../../app/spectraSync.js'
 import {
   buildLookupMap,
@@ -33,7 +37,7 @@ import PlotSaveMenu from '../PlotSaveMenu.jsx'
 import './Spectra.css'
 
 const HULL_TOOLTIP =
-  'Continuum removal (hull correction) on the plotted wavelength range. Uses an upper hull below 6000 nm and a lower hull above. Y axis switches to hull-corrected reflectance.'
+  'Continuum removal on the current view range when enabled. Hull stays fixed while you pan or zoom; double-click resets to that range. Click Hull again to show uncorrected spectra.'
 
 function visibleRawSpectra(rawPlotData, showSelected, showQuery) {
   return filterPlotSpectra(rawPlotData.spectra, { showSelected, showQuery })
@@ -46,7 +50,8 @@ export default function Spectra({ paneIndex, paneState }) {
   const { status, pyodide, runQueued } = usePyodide()
   const [rawPlotData, setRawPlotData] = useState({ spectra: [] })
   const [hullPlotData, setHullPlotData] = useState(null)
-  const [hullRange, setHullRange] = useState(null)
+  const [hullCalcRange, setHullCalcRange] = useState(savedPane.hullRange)
+  const [hullSpanningNames, setHullSpanningNames] = useState(null)
   const [loading, setLoading] = useState(false)
   const [hullLoading, setHullLoading] = useState(false)
   const [error, setError] = useState('')
@@ -107,11 +112,22 @@ export default function Spectra({ paneIndex, paneState }) {
 
   const hasVisibleSpectra = visibleSpectra.length > 0
 
+  const plotLoadRef = useRef({ contextKey: null, selectionKey: null })
+  const hullSnapshotRef = useRef(null)
+  const hullInFlightRef = useRef(null)
+  const lastWrittenPaneRef = useRef(null)
+  const paneStateRef = useRef(paneState)
+  const hasPlotDataRef = useRef(false)
+  paneStateRef.current = paneState
+  hasPlotDataRef.current = rawPlotData.spectra.length > 0
+
   const deactivateHull = useCallback(() => {
     setApplyHull(false)
     setHullPlotData(null)
-    setHullRange(null)
-    setYDomain(null)
+    setHullCalcRange(null)
+    setHullSpanningNames(null)
+    hullSnapshotRef.current = null
+    hullInFlightRef.current = null
   }, [])
 
   const writeSpectraPane = useCallback(
@@ -119,6 +135,7 @@ export default function Spectra({ paneIndex, paneState }) {
       const compact = compactSpectraPaneState(next)
       const current = compactSpectraPaneState(paneState)
       if (JSON.stringify(compact) === JSON.stringify(current)) return
+      lastWrittenPaneRef.current = compact
       updatePane(paneIndex, { state: compact })
     },
     [paneIndex, paneState, updatePane],
@@ -143,15 +160,37 @@ export default function Spectra({ paneIndex, paneState }) {
     [],
   )
 
-  const plotLoadRef = useRef({ contextKey: null, selectionKey: null })
-
   useEffect(() => {
     if (!hasSavedSpectraView(savedPane)) return
+
+    const compact = compactSpectraPaneState(savedPane)
+    if (
+      lastWrittenPaneRef.current
+      && JSON.stringify(compact) === JSON.stringify(lastWrittenPaneRef.current)
+    ) {
+      lastWrittenPaneRef.current = null
+      return
+    }
+
     setXDomain(savedPane.xDomain)
-    setYDomain(savedPane.yDomain)
+    setYDomain(normalizePlotYDomain(savedPane.yDomain))
     setActiveBand(savedPane.activeBand)
     setApplyHull(savedPane.applyHull)
+    setHullCalcRange(savedPane.applyHull ? (savedPane.hullRange ?? savedPane.xDomain) : null)
+    if (!savedPane.applyHull) {
+      setHullSpanningNames(null)
+    }
   }, [savedPane])
+
+  useEffect(() => {
+    if (!applyHull || !hullCalcRange || hullSpanningNames?.length) return undefined
+    if (!visibleSpectra.length) return undefined
+
+    const [xMin, xMax] = hullCalcRange
+    const names = filterSpectraBySpan(visibleSpectra, xMin, xMax).map((spectrum) => spectrum.name)
+    setHullSpanningNames(names)
+    return undefined
+  }, [applyHull, hullCalcRange, hullSpanningNames, visibleSpectra])
 
   useEffect(() => {
     if (status !== 'ready' || !pyodide) return undefined
@@ -166,14 +205,17 @@ export default function Spectra({ paneIndex, paneState }) {
     plotLoadRef.current = { contextKey, selectionKey: selKey }
 
     let cancelled = false
-    setLoading(true)
+    const silentRefresh = selectionOnly && hasPlotDataRef.current
+    if (!silentRefresh) {
+      setLoading(true)
+    }
     setError('')
 
     if (!selectionOnly) {
-      if (!hasSavedSpectraView(mergeSpectraPaneState(paneState))) {
+      if (!hasSavedSpectraView(mergeSpectraPaneState(paneStateRef.current))) {
         setApplyHull(false)
         setHullPlotData(null)
-        setHullRange(null)
+        setHullCalcRange(null)
       }
     }
 
@@ -184,7 +226,7 @@ export default function Spectra({ paneIndex, paneState }) {
       .then((data) => {
         if (cancelled) return
         setRawPlotData(data)
-        const saved = mergeSpectraPaneState(paneState)
+        const saved = mergeSpectraPaneState(paneStateRef.current)
         const defaults = defaultDomainsFromData(data.spectra)
         const explicitView = hasSavedSpectraView(saved)
 
@@ -200,6 +242,12 @@ export default function Spectra({ paneIndex, paneState }) {
           setYDomain(saved.yDomain ?? defaults.yDomain)
           setActiveBand(saved.activeBand)
           setApplyHull(saved.applyHull)
+          setHullCalcRange(saved.applyHull ? (saved.hullRange ?? nextX) : null)
+          if (saved.applyHull) {
+            setHullSpanningNames(null)
+            hullSnapshotRef.current = null
+            hullInFlightRef.current = null
+          }
           return
         }
 
@@ -208,7 +256,7 @@ export default function Spectra({ paneIndex, paneState }) {
         setActiveBand('ALL')
         setApplyHull(false)
         setHullPlotData(null)
-        setHullRange(null)
+        setHullCalcRange(null)
       })
       .catch((err) => {
         if (cancelled) return
@@ -230,134 +278,173 @@ export default function Spectra({ paneIndex, paneState }) {
     appState.query,
     appState.pageSize,
     lookupMap,
-    paneState,
   ])
 
-  const hullXDomain = useMemo(() => {
-    if (xDomain) return xDomain
-    if (!visibleSpectra.length) return [0, 1]
-    return defaultDomainsFromData(visibleSpectra).xDomain
-  }, [visibleSpectra, xDomain])
-
   useEffect(() => {
-    if (!applyHull || status !== 'ready' || !pyodide) {
-      setHullPlotData(null)
-      setHullRange(null)
+    if (!applyHull || status !== 'ready' || !pyodide || !hullCalcRange) {
+      if (!applyHull) {
+        setHullPlotData(null)
+        hullSnapshotRef.current = null
+        hullInFlightRef.current = null
+      }
       return undefined
     }
 
-    if (!visibleSpectra.length) {
-      setHullPlotData(null)
-      setHullRange(null)
+    const snapshotKey = `${hullCalcRange[0]}-${hullCalcRange[1]}`
+    if (hullSnapshotRef.current === snapshotKey) {
       return undefined
     }
 
-    const [xMin, xMax] = hullXDomain
-    const spanningNames = filterSpectraBySpan(visibleSpectra, xMin, xMax).map(
-      (spectrum) => spectrum.name,
-    )
-
-    setHullRange([xMin, xMax])
-
-    if (!spanningNames.length) {
-      setHullPlotData({ spectra: [] })
+    if (!hullSpanningNames?.length) {
+      if (Array.isArray(hullSpanningNames)) {
+        hullSnapshotRef.current = snapshotKey
+        setHullPlotData({ spectra: [] })
+      }
       return undefined
     }
 
+    if (hullInFlightRef.current === snapshotKey) {
+      return undefined
+    }
+
+    const [xMin, xMax] = hullCalcRange
     let cancelled = false
+    hullInFlightRef.current = snapshotKey
     setHullLoading(true)
     setError('')
 
-    runQueued(async () => applyHullToSpectra(pyodide, spanningNames, xMin, xMax, lookupMap))
+    runQueued(async () => applyHullToSpectra(pyodide, hullSpanningNames, xMin, xMax, lookupMap))
       .then((data) => {
         if (cancelled) return
+        hullSnapshotRef.current = snapshotKey
         setHullPlotData(data)
-        setHullRange([xMin, xMax])
       })
       .catch((err) => {
         if (cancelled) return
+        hullSnapshotRef.current = null
         setError(err instanceof Error ? err.message : String(err))
         deactivateHull()
       })
       .finally(() => {
+        if (hullInFlightRef.current === snapshotKey) {
+          hullInFlightRef.current = null
+        }
         if (!cancelled) setHullLoading(false)
       })
 
     return () => {
       cancelled = true
     }
-  }, [applyHull, deactivateHull, hullXDomain, lookupMap, pyodide, runQueued, status, visibleSpectra])
+  }, [applyHull, deactivateHull, hullCalcRange, hullSpanningNames, lookupMap, pyodide, runQueued, status])
 
   const displayPlotData = useMemo(() => {
     if (!applyHull) {
       return { spectra: visibleSpectra }
     }
 
-    const [xMin, xMax] = hullXDomain
-    const spanning = filterSpectraBySpan(visibleSpectra, xMin, xMax)
-
-    if (hullPlotData) {
-      return { spectra: applyHullCorrections(spanning, hullPlotData.spectra) }
+    if (!hullPlotData || !hullCalcRange) {
+      return { spectra: [] }
     }
 
-    return { spectra: spanning }
-  }, [applyHull, hullPlotData, hullXDomain, visibleSpectra])
+    const corrected = applyHullCorrections(visibleSpectra, hullPlotData.spectra)
+    const [xMin, xMax] = hullCalcRange
+    return { spectra: clipSpectraToXRange(corrected, xMin, xMax) }
+  }, [applyHull, hullCalcRange, hullPlotData, visibleSpectra])
 
   const resolvedDomains = useMemo(() => {
     if (!displayPlotData.spectra.length) {
-      return { xDomain: [0, 1], yDomain: applyHull ? [0, 1.1] : [0, 100] }
+      return { xDomain: [0, 1], yDomain: applyHull ? [0, 105] : [0, 100] }
     }
-    return computePlotExtents(displayPlotData.spectra, xDomain, yDomain, { hullYAxis: applyHull })
+    return computePlotExtents(
+      displayPlotData.spectra,
+      xDomain,
+      normalizePlotYDomain(yDomain),
+      { hullYAxis: applyHull },
+    )
   }, [applyHull, displayPlotData, xDomain, yDomain])
+
+  const persistSpectraView = useCallback(
+    (patch) => {
+      const payload = {
+        xDomain,
+        yDomain,
+        activeBand,
+        applyHull,
+        ...(applyHull && hullCalcRange ? { hullRange: hullCalcRange } : {}),
+        ...patch,
+      }
+      if (!payload.applyHull) {
+        delete payload.hullRange
+      }
+      writeSpectraPane(payload)
+    },
+    [activeBand, applyHull, hullCalcRange, writeSpectraPane, xDomain, yDomain],
+  )
+
+  const normalizeViewYDomain = useCallback(
+    (nextY) => {
+      const normalized = normalizePlotYDomain(nextY) ?? clampPlotYDomainMin(nextY)
+      if (!normalized) {
+        return applyHull ? [...HULL_Y_DOMAIN] : normalized
+      }
+      return normalized
+    },
+    [applyHull],
+  )
 
   const handleBrushZoom = useCallback(
     ({ xDomain: nextX, yDomain: nextY }) => {
+      const clampedY = normalizeViewYDomain(nextY)
       setXDomain(nextX)
-      setYDomain(nextY)
+      setYDomain(clampedY)
       setActiveBand('ALL')
-      writeSpectraPane({
+      persistSpectraView({
         xDomain: nextX,
-        yDomain: nextY,
+        yDomain: clampedY,
         activeBand: 'ALL',
-        applyHull,
       })
     },
-    [applyHull, writeSpectraPane],
+    [normalizeViewYDomain, persistSpectraView],
   )
 
   const handleViewPan = useCallback(
     ({ xDomain: nextX, yDomain: nextY }) => {
-      deactivateHull()
+      const clampedY = normalizeViewYDomain(nextY)
       setXDomain(nextX)
-      setYDomain(nextY)
+      setYDomain(clampedY)
       setActiveBand('ALL')
       scheduleWriteSpectraPane({
         xDomain: nextX,
-        yDomain: nextY,
+        yDomain: clampedY,
         activeBand: 'ALL',
-        applyHull: false,
+        applyHull,
+        ...(applyHull && hullCalcRange ? { hullRange: hullCalcRange } : {}),
       })
     },
-    [deactivateHull, scheduleWriteSpectraPane],
+    [applyHull, hullCalcRange, normalizeViewYDomain, scheduleWriteSpectraPane],
   )
 
   const handleBandSelect = useCallback(
     (bandKey) => {
       if (!visibleSpectra.length) return
 
-      deactivateHull()
       setActiveBand(bandKey)
+
+      const persistBandView = (nextX, nextY, nextBand) => {
+        writeSpectraPane({
+          xDomain: nextX,
+          yDomain: nextY,
+          activeBand: nextBand,
+          applyHull,
+          ...(applyHull && hullCalcRange ? { hullRange: hullCalcRange } : {}),
+        })
+      }
 
       if (bandKey === 'ALL') {
         const defaults = defaultDomainsFromData(visibleSpectra)
         setXDomain(defaults.xDomain)
         setYDomain(defaults.yDomain)
-        writeSpectraPane({
-          xDomain: defaults.xDomain,
-          yDomain: defaults.yDomain,
-          activeBand: 'ALL',
-          applyHull: false,
-        })
+        persistBandView(defaults.xDomain, defaults.yDomain, 'ALL')
         return
       }
 
@@ -372,51 +459,87 @@ export default function Spectra({ paneIndex, paneState }) {
         setXDomain([band.min, band.max])
         const fallback = defaultDomainsFromData(visibleSpectra)
         setYDomain(fallback.yDomain)
-        writeSpectraPane({
-          xDomain: [band.min, band.max],
-          yDomain: fallback.yDomain,
-          activeBand: bandKey,
-          applyHull: false,
-        })
+        persistBandView([band.min, band.max], fallback.yDomain, bandKey)
         return
       }
 
       const { yDomain: nextY } = computePlotExtents(visibleSpectra, nextX, null)
       setXDomain(nextX)
       setYDomain(nextY)
-      writeSpectraPane({
+      persistBandView(nextX, nextY, bandKey)
+    },
+    [applyHull, hullCalcRange, visibleSpectra, writeSpectraPane],
+  )
+
+  const handleResetZoom = useCallback(() => {
+    if (applyHull && hullCalcRange) {
+      const nextX = [...hullCalcRange]
+      const nextY = [...HULL_Y_DOMAIN]
+      setXDomain(nextX)
+      setYDomain(nextY)
+      setActiveBand('ALL')
+      persistSpectraView({
         xDomain: nextX,
         yDomain: nextY,
-        activeBand: bandKey,
-        applyHull: false,
+        activeBand: 'ALL',
       })
-    },
-    [deactivateHull, visibleSpectra, writeSpectraPane],
-  )
+      return
+    }
+    handleBandSelect('ALL')
+  }, [applyHull, handleBandSelect, hullCalcRange, persistSpectraView])
 
   const handleHullToggle = useCallback(() => {
     if (applyHull) {
       deactivateHull()
-      writeSpectraPane({ xDomain, yDomain, activeBand, applyHull: false })
+      writeSpectraPane({
+        xDomain,
+        yDomain: normalizePlotYDomain(yDomain),
+        activeBand,
+        applyHull: false,
+      })
       return
     }
-    if (!hasVisibleSpectra || loading || hullLoading) return
-    setYDomain(null)
+    if (!hasVisibleSpectra || (loading && rawPlotData.spectra.length === 0) || (applyHull && hullLoading && !hullPlotData)) return
+
+    const calcRange = xDomain?.length === 2
+      ? [...xDomain]
+      : defaultDomainsFromData(visibleSpectra).xDomain
+    const spanningNames = filterSpectraBySpan(visibleSpectra, calcRange[0], calcRange[1]).map(
+      (spectrum) => spectrum.name,
+    )
+
+    hullSnapshotRef.current = null
+    hullInFlightRef.current = null
+    setHullPlotData(null)
+    setHullSpanningNames(spanningNames)
+    setHullCalcRange(calcRange)
+    setYDomain([...HULL_Y_DOMAIN])
     setApplyHull(true)
-    writeSpectraPane({ xDomain, yDomain: null, activeBand, applyHull: true })
+    writeSpectraPane({
+      xDomain,
+      yDomain: [...HULL_Y_DOMAIN],
+      activeBand,
+      applyHull: true,
+      hullRange: calcRange,
+    })
   }, [
     activeBand,
     applyHull,
     deactivateHull,
     hasVisibleSpectra,
     hullLoading,
+    hullPlotData,
     loading,
+    rawPlotData.spectra.length,
+    visibleSpectra,
     writeSpectraPane,
     xDomain,
     yDomain,
   ])
 
-  const plotBusy = loading || (applyHull && hullLoading)
+  const spectraLoading = loading && rawPlotData.spectra.length === 0
+  const hullBusy = applyHull && hullLoading && !hullPlotData
+  const plotBusy = spectraLoading || hullBusy
   const plotHostRef = useRef(null)
 
   const legendSections = useMemo(
@@ -440,8 +563,8 @@ export default function Spectra({ paneIndex, paneState }) {
   return (
     <div className="widget widget-spectra">
       {error ? <p className="spectra-status spectra-status--error">{error}</p> : null}
-      {loading ? <p className="spectra-status">Loading spectra…</p> : null}
-      {applyHull && hullLoading ? (
+      {spectraLoading ? <p className="spectra-status">Loading spectra…</p> : null}
+      {hullBusy ? (
         <p className="spectra-status">Applying hull correction…</p>
       ) : null}
 
@@ -470,7 +593,7 @@ export default function Spectra({ paneIndex, paneState }) {
         onHoverSpectrum={setHoveredSpectrum}
         onBrushZoom={handleBrushZoom}
         onViewPan={handleViewPan}
-        onResetZoom={() => handleBandSelect('ALL')}
+        onResetZoom={handleResetZoom}
         applyHull={applyHull}
         selectedColors={deferredSelectedColors}
         positionGuideWavelengths={positionGuideWavelengths}
@@ -483,7 +606,6 @@ export default function Spectra({ paneIndex, paneState }) {
               type="checkbox"
               checked={showSelected}
               onChange={(event) => {
-                deactivateHull()
                 setShowSelected(event.target.checked)
               }}
               disabled={plotBusy || rawPlotData.spectra.length === 0}
@@ -495,7 +617,6 @@ export default function Spectra({ paneIndex, paneState }) {
               type="checkbox"
               checked={showQuery}
               onChange={(event) => {
-                deactivateHull()
                 setShowQuery(event.target.checked)
               }}
               disabled={plotBusy || rawPlotData.spectra.length === 0}
@@ -507,7 +628,7 @@ export default function Spectra({ paneIndex, paneState }) {
               type="button"
               className={`spectra-band-button${applyHull ? ' spectra-band-button--active' : ''}`}
               onClick={handleHullToggle}
-              disabled={status !== 'ready' || loading || !hasVisibleSpectra}
+              disabled={status !== 'ready' || spectraLoading || !hasVisibleSpectra}
             >
               Hull
             </button>

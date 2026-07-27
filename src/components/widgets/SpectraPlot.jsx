@@ -117,7 +117,7 @@ function SpectraPlotInner({
   const clipId = useId().replace(/:/g, '')
   const plotGestureRef = useRef(null)
   const coarsePointer = useCoarsePointer()
-  const yAxisLabel = applyHull ? 'Hull corrected reflectance' : 'Reflectance (%)'
+  const yAxisLabel = applyHull ? 'Hull corrected reflectance (%)' : 'Reflectance (%)'
   const innerWidth = Math.max(width - margin.left - margin.right, 0)
   const innerHeight = Math.max(height - margin.top - margin.bottom, 0)
 
@@ -600,6 +600,6 @@ function defaultDomainsFromSpectra(spectra) {
   const pad = Math.max((yMax - yMin) * Y_AXIS_PAD_FRACTION, 1)
   return {
     xDomain: [xMin, xDomainMax],
-    yDomain: [yMin - pad, yMax + pad],
+    yDomain: [Math.max(0, yMin - pad), yMax + pad],
   }
 }

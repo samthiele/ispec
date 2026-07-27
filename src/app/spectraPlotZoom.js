@@ -1,3 +1,5 @@
+import { clampPlotYDomainMin } from './spectraSync.js'
+
 export const WHEEL_ZOOM_FACTOR = 1.12
 export const MIN_DOMAIN_SPAN_FRACTION = 0.01
 
@@ -83,7 +85,10 @@ function enforceMinimumSpan(next, fullX, fullY) {
     y1 = mid + minYSpan / 2
   }
 
-  return { xDomain: [x0, x1], yDomain: [y0, y1] }
+  return {
+    xDomain: [x0, x1],
+    yDomain: clampPlotYDomainMin([y0, y1]),
+  }
 }
 
 export function wheelZoomFactor(deltaY) {

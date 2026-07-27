@@ -7,6 +7,7 @@ export const DEFAULT_SPECTRA_PANE_STATE = {
   yDomain: null,
   activeBand: 'ALL',
   applyHull: false,
+  hullRange: null,
 }
 
 function normalizeDomain(value) {
@@ -30,6 +31,8 @@ export function normalizeSpectraPaneState(raw) {
     normalized.activeBand = raw.activeBand.trim()
   }
   if (raw.applyHull) normalized.applyHull = true
+  const hullRange = normalizeDomain(raw.hullRange)
+  if (hullRange) normalized.hullRange = hullRange
 
   return normalized
 }
@@ -48,6 +51,7 @@ export function compactSpectraPaneState(state) {
     compact.activeBand = merged.activeBand
   }
   if (merged.applyHull) compact.applyHull = true
+  if (merged.applyHull && merged.hullRange) compact.hullRange = merged.hullRange
 
   return compact
 }

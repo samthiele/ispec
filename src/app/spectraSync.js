@@ -73,7 +73,27 @@ export async function applyHullToSpectra(pyodide, names, xMin, xMax, lookupMap =
 
 export const HULL_BAND_THRESH_NM = 25
 export const Y_AXIS_PAD_FRACTION = 0.1
-export const HULL_Y_MAX = 1.1
+export const HULL_Y_MAX_PCT = 105
+export const HULL_Y_DOMAIN = [0, HULL_Y_MAX_PCT]
+
+/** Reflectance axes are percentages; never show values below zero. */
+export function clampPlotYDomainMin(yDomain) {
+  if (!Array.isArray(yDomain) || yDomain.length !== 2) return yDomain
+  const lo = Number(yDomain[0])
+  const hi = Number(yDomain[1])
+  if (!Number.isFinite(lo) || !Number.isFinite(hi) || hi <= lo) return yDomain
+  return [Math.max(0, lo), hi]
+}
+
+/** Drop saved y-axis limits that used the legacy 0–1 hull scale. */
+export function normalizePlotYDomain(yDomain) {
+  if (!Array.isArray(yDomain) || yDomain.length !== 2) return null
+  const lo = Number(yDomain[0])
+  const hi = Number(yDomain[1])
+  if (!Number.isFinite(lo) || !Number.isFinite(hi) || hi <= lo) return null
+  if (hi <= 2) return null
+  return clampPlotYDomainMin([lo, hi])
+}
 
 export function spansWavelengthRange(spectrum, xMin, xMax, thresh = HULL_BAND_THRESH_NM) {
   const { wavelengths } = spectrum
@@ -119,6 +139,22 @@ export function applyHullCorrections(spectra, hullSpectra) {
     })
 }
 
+/** Keep only points inside [xMin, xMax] for display (e.g. hull-corrected range). */
+export function clipSpectraToXRange(spectra, xMin, xMax) {
+  return spectra.flatMap((spectrum) => {
+    const wavelengths = []
+    const reflectance = []
+    for (let i = 0; i < spectrum.wavelengths.length; i += 1) {
+      const wav = spectrum.wavelengths[i]
+      if (wav < xMin || wav > xMax) continue
+      wavelengths.push(wav)
+      reflectance.push(spectrum.reflectance[i])
+    }
+    if (!wavelengths.length) return []
+    return [{ ...spectrum, wavelengths, reflectance }]
+  })
+}
+
 export function defaultPlotDomains(spectra, xDomain = null, { hullYAxis = false } = {}) {
   if (xDomain) {
     const { xDomain: x, yDomain } = computePlotExtents(spectra, xDomain, null, { hullYAxis })
@@ -131,7 +167,7 @@ export function computePlotExtents(spectra, xDomain = null, yDomain = null, { hu
   if (!spectra.length) {
     return {
       xDomain: [0, 1],
-      yDomain: hullYAxis ? [0, HULL_Y_MAX] : [0, 100],
+      yDomain: hullYAxis ? [0, HULL_Y_MAX_PCT] : [0, 100],
     }
   }
 
@@ -147,6 +183,15 @@ export function computePlotExtents(spectra, xDomain = null, yDomain = null, { hu
 
   const xMin = xDomain?.[0] ?? globalXMin
   const xMax = xDomain?.[1] ?? globalXMax
+
+  const explicitY = normalizePlotYDomain(yDomain) != null
+
+  if (hullYAxis && !explicitY) {
+    return {
+      xDomain: [xMin, xMax],
+      yDomain: [...HULL_Y_DOMAIN],
+    }
+  }
 
   let yMin = yDomain?.[0]
   let yMax = yDomain?.[1]
@@ -166,22 +211,31 @@ export function computePlotExtents(spectra, xDomain = null, yDomain = null, { hu
     }
     if (!Number.isFinite(yMin) || !Number.isFinite(yMax)) {
       yMin = 0
-      yMax = hullYAxis ? 1 : 100
+      yMax = hullYAxis ? HULL_Y_MAX_PCT : 100
     }
     if (hullYAxis) {
-      const pad = Math.max((HULL_Y_MAX - yMin) * Y_AXIS_PAD_FRACTION, 0.01)
+      const pad = Math.max((HULL_Y_MAX_PCT - yMin) * Y_AXIS_PAD_FRACTION, 1)
       yMin = Math.max(0, yMin - pad)
-      yMax = HULL_Y_MAX
     } else {
       const pad = Math.max((yMax - yMin) * Y_AXIS_PAD_FRACTION, 1)
-      yMin -= pad
+      yMin = Math.max(0, yMin - pad)
       yMax += pad
     }
   }
 
+  if (hullYAxis) {
+    if (!explicitY) {
+      yMax = HULL_Y_MAX_PCT
+    }
+    if (!Number.isFinite(yMin)) yMin = 0
+    yMin = Math.max(0, yMin)
+  } else {
+    yMin = Math.max(0, yMin)
+  }
+
   return {
     xDomain: [xMin, xMax],
-    yDomain: [yMin, yMax],
+    yDomain: clampPlotYDomainMin([yMin, yMax]),
   }
 }
 

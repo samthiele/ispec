@@ -44,6 +44,7 @@ import {
   runPythonSearch,
 } from '../../app/querySync.js'
 import { exportSpectrumWavelengthRanges } from '../../app/llmSync.js'
+import { downloadSearchResultsCsv } from '../../app/searchResultsExport.js'
 import { resolveSpectraXExtent } from '../../app/spectraState.js'
 import { useLongPress } from '../../app/useLongPress.js'
 import { useCoreAppState } from '../../context/useAppState.js'
@@ -70,6 +71,8 @@ const MIX_TOOLTIP =
   'Create a virtual mixture from selected spectra using their Mix % weights (at least two with weight > 0).'
 const RESAMPLE_TOOLTIP =
   'Resample selected spectra onto a satellite sensor bandpass and add them as new virtual spectra.'
+const DOWNLOAD_RESULTS_TOOLTIP =
+  'Download all search results as a CSV file (library, group, spectrum name, match method, and score).'
 
 function parseMixPercent(value) {
   const trimmed = String(value).trim()
@@ -710,6 +713,16 @@ export default function Query() {
     }
   }
 
+  async function handleDownloadResults() {
+    if (!searchResults?.total || !appState.query.trim()) return
+
+    try {
+      downloadSearchResultsCsv(appState.query, searchResults)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    }
+  }
+
   const mixComponentCount = buildMixComponents(selection, selectionMeta, resolvedMixPercents()).length
 
   const rangeLabel =
@@ -817,6 +830,45 @@ export default function Query() {
               hidden={activeTab !== 'results'}
               className="query-tab-content"
             >
+            <div className="query-results-toolbar">
+              <div className="query-nav">
+                <button
+                  type="button"
+                  className="query-nav-button"
+                  onClick={handlePrev}
+                  disabled={!canGoPrev || busy || status !== 'ready'}
+                >
+                  Prev
+                </button>
+                <button
+                  type="button"
+                  className="query-nav-button"
+                  onClick={handleClear}
+                  disabled={busy || status !== 'ready' || (!appState.query && total === 0)}
+                >
+                  Clear
+                </button>
+                <button
+                  type="button"
+                  className="query-nav-button"
+                  onClick={handleNext}
+                  disabled={!canGoNext || busy || status !== 'ready'}
+                >
+                  Next
+                </button>
+              </div>
+              <span data-tooltip={DOWNLOAD_RESULTS_TOOLTIP}>
+                <button
+                  type="button"
+                  className="query-selected-action"
+                  onClick={handleDownloadResults}
+                  disabled={busy || status !== 'ready' || total === 0}
+                >
+                  Download
+                </button>
+              </span>
+            </div>
+
             <div className="query-results-panel">
               <ul className="query-results" role="list">
                 {visibleResults.length === 0 ? (
@@ -856,33 +908,6 @@ export default function Query() {
                   })
                 )}
               </ul>
-            </div>
-
-            <div className="query-nav">
-              <button
-                type="button"
-                className="query-nav-button"
-                onClick={handlePrev}
-                disabled={!canGoPrev || busy || status !== 'ready'}
-              >
-                Prev
-              </button>
-              <button
-                type="button"
-                className="query-nav-button"
-                onClick={handleClear}
-                disabled={busy || status !== 'ready' || (!appState.query && total === 0)}
-              >
-                Clear
-              </button>
-              <button
-                type="button"
-                className="query-nav-button"
-                onClick={handleNext}
-                disabled={!canGoNext || busy || status !== 'ready'}
-              >
-                Next
-              </button>
             </div>
           </div>
           ) : null}
