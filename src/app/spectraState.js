@@ -1,6 +1,6 @@
 import { SPECTRAL_BANDS } from './spectralBands.js'
 
-export const SPECTRA_PANE_STATE_KEYS = ['xDomain', 'yDomain', 'activeBand', 'applyHull']
+export const SPECTRA_PANE_STATE_KEYS = ['xDomain', 'yDomain', 'activeBand', 'applyHull', 'showAbsorbance']
 
 export const DEFAULT_SPECTRA_PANE_STATE = {
   xDomain: null,
@@ -8,6 +8,7 @@ export const DEFAULT_SPECTRA_PANE_STATE = {
   activeBand: 'ALL',
   applyHull: false,
   hullRange: null,
+  showAbsorbance: false,
 }
 
 function normalizeDomain(value) {
@@ -31,6 +32,7 @@ export function normalizeSpectraPaneState(raw) {
     normalized.activeBand = raw.activeBand.trim()
   }
   if (raw.applyHull) normalized.applyHull = true
+  if (raw.showAbsorbance) normalized.showAbsorbance = true
   const hullRange = normalizeDomain(raw.hullRange)
   if (hullRange) normalized.hullRange = hullRange
 
@@ -52,6 +54,7 @@ export function compactSpectraPaneState(state) {
   }
   if (merged.applyHull) compact.applyHull = true
   if (merged.applyHull && merged.hullRange) compact.hullRange = merged.hullRange
+  if (merged.showAbsorbance) compact.showAbsorbance = true
 
   return compact
 }
@@ -68,13 +71,14 @@ export function isPlaceholderEmptyDomain(xDomain) {
 export function hasSavedSpectraView(state) {
   const merged = mergeSpectraPaneState(state)
   if (isPlaceholderEmptyDomain(merged.xDomain)) {
-    return merged.yDomain != null || merged.activeBand !== 'ALL' || merged.applyHull
+    return merged.yDomain != null || merged.activeBand !== 'ALL' || merged.applyHull || merged.showAbsorbance
   }
   return (
     merged.xDomain != null
     || merged.yDomain != null
     || merged.activeBand !== 'ALL'
     || merged.applyHull
+    || merged.showAbsorbance
   )
 }
 

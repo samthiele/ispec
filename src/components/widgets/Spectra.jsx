@@ -1,9 +1,7 @@
 import { useCallback, useEffect, useDeferredValue, useMemo, useRef, useState } from 'react'
 import {
-  applyHullCorrections,
   applyHullToSpectra,
   clampPlotYDomainMin,
-  clipSpectraToXRange,
   computePlotExtents,
   exportSpectraPlotData,
   filterPlotSpectra,
@@ -28,6 +26,7 @@ import {
   mergeSpectraPaneState,
 } from '../../app/spectraState.js'
 import { spectraCrosshairWavelengths } from '../../app/spectralExpression.js'
+import { buildDisplaySpectra } from '../../app/spectraAbsorbance.js'
 import { buildSpectraLegendSections } from '../../app/plotLegend.js'
 import { useCoreAppState } from '../../context/useAppState.js'
 import { useInteraction } from '../../context/useInteraction.js'
@@ -38,6 +37,8 @@ import './Spectra.css'
 
 const HULL_TOOLTIP =
   'Continuum removal on the current view range when enabled. Hull stays fixed while you pan or zoom; double-click resets to that range. Click Hull again to show uncorrected spectra.'
+const ABSORBANCE_TOOLTIP =
+  'Display spectra as Kubelka–Munk pseudo-absorbance. Each curve is rescaled so its minimum reflectance is ~2.5% before conversion; continuum (zero KM) and very deep features are omitted. Click again to return to reflectance.'
 
 function visibleRawSpectra(rawPlotData, showSelected, showQuery) {
   return filterPlotSpectra(rawPlotData.spectra, { showSelected, showQuery })
@@ -61,6 +62,7 @@ export default function Spectra({ paneIndex, paneState }) {
   const [showSelected, setShowSelected] = useState(true)
   const [showQuery, setShowQuery] = useState(true)
   const [applyHull, setApplyHull] = useState(savedPane.applyHull)
+  const [showAbsorbance, setShowAbsorbance] = useState(savedPane.showAbsorbance)
 
   const pageSlice = useMemo(() => {
     const [start, end] = appState.slice
@@ -105,12 +107,23 @@ export default function Spectra({ paneIndex, paneState }) {
     return [...new Set([...fromQuery, ...fromCrosshair])].sort((left, right) => left - right)
   }, [appState.query, biplotConfig.xExpr, biplotConfig.yExpr, biplotCrosshair])
 
+  const absorbanceExtentOptions = useMemo(
+    () => ({
+      hullYAxis: applyHull && !showAbsorbance,
+      absorbanceAxis: showAbsorbance,
+    }),
+    [applyHull, showAbsorbance],
+  )
+
   const visibleSpectra = useMemo(
     () => visibleRawSpectra(rawPlotData, showSelected, showQuery),
     [rawPlotData, showQuery, showSelected],
   )
 
   const hasVisibleSpectra = visibleSpectra.length > 0
+
+  const showAbsorbanceRef = useRef(showAbsorbance)
+  showAbsorbanceRef.current = showAbsorbance
 
   const plotLoadRef = useRef({ contextKey: null, selectionKey: null })
   const hullSnapshotRef = useRef(null)
@@ -173,9 +186,10 @@ export default function Spectra({ paneIndex, paneState }) {
     }
 
     setXDomain(savedPane.xDomain)
-    setYDomain(normalizePlotYDomain(savedPane.yDomain))
+    setYDomain(normalizePlotYDomain(savedPane.yDomain, { absorbanceAxis: savedPane.showAbsorbance }))
     setActiveBand(savedPane.activeBand)
     setApplyHull(savedPane.applyHull)
+    setShowAbsorbance(savedPane.showAbsorbance)
     setHullCalcRange(savedPane.applyHull ? (savedPane.hullRange ?? savedPane.xDomain) : null)
     if (!savedPane.applyHull) {
       setHullSpanningNames(null)
@@ -242,6 +256,7 @@ export default function Spectra({ paneIndex, paneState }) {
           setYDomain(saved.yDomain ?? defaults.yDomain)
           setActiveBand(saved.activeBand)
           setApplyHull(saved.applyHull)
+          setShowAbsorbance(saved.showAbsorbance)
           setHullCalcRange(saved.applyHull ? (saved.hullRange ?? nextX) : null)
           if (saved.applyHull) {
             setHullSpanningNames(null)
@@ -318,6 +333,17 @@ export default function Spectra({ paneIndex, paneState }) {
         if (cancelled) return
         hullSnapshotRef.current = snapshotKey
         setHullPlotData(data)
+        if (showAbsorbanceRef.current) {
+          const spectra = buildDisplaySpectra(visibleSpectra, {
+            applyHull: true,
+            hullPlotData: data,
+            hullCalcRange: [xMin, xMax],
+            showAbsorbance: true,
+          })
+          setYDomain(computePlotExtents(spectra, xDomain, null, {
+            absorbanceAxis: true,
+          }).yDomain)
+        }
       })
       .catch((err) => {
         if (cancelled) return
@@ -335,33 +361,42 @@ export default function Spectra({ paneIndex, paneState }) {
     return () => {
       cancelled = true
     }
-  }, [applyHull, deactivateHull, hullCalcRange, hullSpanningNames, lookupMap, pyodide, runQueued, status])
+  }, [applyHull, deactivateHull, hullCalcRange, hullSpanningNames, lookupMap, pyodide, runQueued, status, visibleSpectra, xDomain])
 
-  const displayPlotData = useMemo(() => {
-    if (!applyHull) {
-      return { spectra: visibleSpectra }
-    }
+  const displaySpectra = useMemo(
+    () =>
+      buildDisplaySpectra(visibleSpectra, {
+        applyHull,
+        hullPlotData,
+        hullCalcRange,
+        showAbsorbance,
+      }),
+    [applyHull, hullCalcRange, hullPlotData, showAbsorbance, visibleSpectra],
+  )
 
-    if (!hullPlotData || !hullCalcRange) {
-      return { spectra: [] }
-    }
-
-    const corrected = applyHullCorrections(visibleSpectra, hullPlotData.spectra)
-    const [xMin, xMax] = hullCalcRange
-    return { spectra: clipSpectraToXRange(corrected, xMin, xMax) }
-  }, [applyHull, hullCalcRange, hullPlotData, visibleSpectra])
+  const displayPlotData = useMemo(
+    () => ({ spectra: displaySpectra }),
+    [displaySpectra],
+  )
 
   const resolvedDomains = useMemo(() => {
     if (!displayPlotData.spectra.length) {
-      return { xDomain: [0, 1], yDomain: applyHull ? [0, 105] : [0, 100] }
+      return {
+        xDomain: [0, 1],
+        yDomain: applyHull && !showAbsorbance
+          ? [0, 105]
+          : showAbsorbance
+            ? [0, 1]
+            : [0, 100],
+      }
     }
     return computePlotExtents(
       displayPlotData.spectra,
       xDomain,
-      normalizePlotYDomain(yDomain),
-      { hullYAxis: applyHull },
+      normalizePlotYDomain(yDomain, { absorbanceAxis: showAbsorbance }),
+      absorbanceExtentOptions,
     )
-  }, [applyHull, displayPlotData, xDomain, yDomain])
+  }, [absorbanceExtentOptions, applyHull, displayPlotData, showAbsorbance, xDomain, yDomain])
 
   const persistSpectraView = useCallback(
     (patch) => {
@@ -370,6 +405,7 @@ export default function Spectra({ paneIndex, paneState }) {
         yDomain,
         activeBand,
         applyHull,
+        showAbsorbance,
         ...(applyHull && hullCalcRange ? { hullRange: hullCalcRange } : {}),
         ...patch,
       }
@@ -378,18 +414,19 @@ export default function Spectra({ paneIndex, paneState }) {
       }
       writeSpectraPane(payload)
     },
-    [activeBand, applyHull, hullCalcRange, writeSpectraPane, xDomain, yDomain],
+    [activeBand, applyHull, hullCalcRange, showAbsorbance, writeSpectraPane, xDomain, yDomain],
   )
 
   const normalizeViewYDomain = useCallback(
     (nextY) => {
-      const normalized = normalizePlotYDomain(nextY) ?? clampPlotYDomainMin(nextY)
+      const normalized = normalizePlotYDomain(nextY, { absorbanceAxis: showAbsorbance })
+        ?? clampPlotYDomainMin(nextY)
       if (!normalized) {
         return applyHull ? [...HULL_Y_DOMAIN] : normalized
       }
       return normalized
     },
-    [applyHull],
+    [applyHull, showAbsorbance],
   )
 
   const handleBrushZoom = useCallback(
@@ -418,10 +455,11 @@ export default function Spectra({ paneIndex, paneState }) {
         yDomain: clampedY,
         activeBand: 'ALL',
         applyHull,
+        showAbsorbance,
         ...(applyHull && hullCalcRange ? { hullRange: hullCalcRange } : {}),
       })
     },
-    [applyHull, hullCalcRange, normalizeViewYDomain, scheduleWriteSpectraPane],
+    [applyHull, hullCalcRange, normalizeViewYDomain, scheduleWriteSpectraPane, showAbsorbance],
   )
 
   const handleBandSelect = useCallback(
@@ -430,18 +468,28 @@ export default function Spectra({ paneIndex, paneState }) {
 
       setActiveBand(bandKey)
 
+      const displayOptions = absorbanceExtentOptions
+      const displaySpectraForView = () =>
+        buildDisplaySpectra(visibleSpectra, {
+          applyHull,
+          hullPlotData,
+          hullCalcRange,
+          showAbsorbance,
+        })
+
       const persistBandView = (nextX, nextY, nextBand) => {
         writeSpectraPane({
           xDomain: nextX,
           yDomain: nextY,
           activeBand: nextBand,
           applyHull,
+          showAbsorbance,
           ...(applyHull && hullCalcRange ? { hullRange: hullCalcRange } : {}),
         })
       }
 
       if (bandKey === 'ALL') {
-        const defaults = defaultDomainsFromData(visibleSpectra)
+        const defaults = computePlotExtents(displaySpectraForView(), null, null, displayOptions)
         setXDomain(defaults.xDomain)
         setYDomain(defaults.yDomain)
         persistBandView(defaults.xDomain, defaults.yDomain, 'ALL')
@@ -457,23 +505,43 @@ export default function Spectra({ paneIndex, paneState }) {
 
       if (nextX[1] <= nextX[0]) {
         setXDomain([band.min, band.max])
-        const fallback = defaultDomainsFromData(visibleSpectra)
+        const fallback = computePlotExtents(displaySpectraForView(), [band.min, band.max], null, displayOptions)
         setYDomain(fallback.yDomain)
         persistBandView([band.min, band.max], fallback.yDomain, bandKey)
         return
       }
 
-      const { yDomain: nextY } = computePlotExtents(visibleSpectra, nextX, null)
+      const { yDomain: nextY } = computePlotExtents(displaySpectraForView(), nextX, null, displayOptions)
       setXDomain(nextX)
       setYDomain(nextY)
       persistBandView(nextX, nextY, bandKey)
     },
-    [applyHull, hullCalcRange, visibleSpectra, writeSpectraPane],
+    [absorbanceExtentOptions, applyHull, hullCalcRange, hullPlotData, visibleSpectra, writeSpectraPane],
   )
 
   const handleResetZoom = useCallback(() => {
     if (applyHull && hullCalcRange) {
       const nextX = [...hullCalcRange]
+      if (showAbsorbance) {
+        const spectra = buildDisplaySpectra(visibleSpectra, {
+          applyHull: true,
+          hullPlotData,
+          hullCalcRange,
+          showAbsorbance: true,
+        })
+        const { yDomain: nextY } = computePlotExtents(spectra, nextX, null, {
+          absorbanceAxis: true,
+        })
+        setXDomain(nextX)
+        setYDomain(nextY)
+        setActiveBand('ALL')
+        persistSpectraView({
+          xDomain: nextX,
+          yDomain: nextY,
+          activeBand: 'ALL',
+        })
+        return
+      }
       const nextY = [...HULL_Y_DOMAIN]
       setXDomain(nextX)
       setYDomain(nextY)
@@ -486,16 +554,59 @@ export default function Spectra({ paneIndex, paneState }) {
       return
     }
     handleBandSelect('ALL')
-  }, [applyHull, handleBandSelect, hullCalcRange, persistSpectraView])
+  }, [applyHull, handleBandSelect, hullCalcRange, hullPlotData, persistSpectraView, showAbsorbance, visibleSpectra])
+
+  const handleAbsorbanceToggle = useCallback(() => {
+    if (!hasVisibleSpectra) return
+
+    const next = !showAbsorbance
+    const spectra = buildDisplaySpectra(visibleSpectra, {
+      applyHull,
+      hullPlotData,
+      hullCalcRange,
+      showAbsorbance: next,
+    })
+    const { yDomain: nextY } = computePlotExtents(
+      spectra,
+      xDomain,
+      null,
+      {
+        hullYAxis: applyHull && !next,
+        absorbanceAxis: next,
+      },
+    )
+
+    setShowAbsorbance(next)
+    setYDomain(nextY)
+    writeSpectraPane({
+      xDomain,
+      yDomain: nextY,
+      activeBand,
+      applyHull,
+      showAbsorbance: next,
+      ...(applyHull && hullCalcRange ? { hullRange: hullCalcRange } : {}),
+    })
+  }, [
+    activeBand,
+    applyHull,
+    hasVisibleSpectra,
+    hullCalcRange,
+    hullPlotData,
+    showAbsorbance,
+    visibleSpectra,
+    writeSpectraPane,
+    xDomain,
+  ])
 
   const handleHullToggle = useCallback(() => {
     if (applyHull) {
       deactivateHull()
       writeSpectraPane({
         xDomain,
-        yDomain: normalizePlotYDomain(yDomain),
+        yDomain: normalizePlotYDomain(yDomain, { absorbanceAxis: showAbsorbance }),
         activeBand,
         applyHull: false,
+        showAbsorbance,
       })
       return
     }
@@ -513,13 +624,16 @@ export default function Spectra({ paneIndex, paneState }) {
     setHullPlotData(null)
     setHullSpanningNames(spanningNames)
     setHullCalcRange(calcRange)
-    setYDomain([...HULL_Y_DOMAIN])
+    if (!showAbsorbance) {
+      setYDomain([...HULL_Y_DOMAIN])
+    }
     setApplyHull(true)
     writeSpectraPane({
       xDomain,
-      yDomain: [...HULL_Y_DOMAIN],
+      yDomain: showAbsorbance ? yDomain : [...HULL_Y_DOMAIN],
       activeBand,
       applyHull: true,
+      showAbsorbance,
       hullRange: calcRange,
     })
   }, [
@@ -533,6 +647,7 @@ export default function Spectra({ paneIndex, paneState }) {
     rawPlotData.spectra.length,
     visibleSpectra,
     writeSpectraPane,
+    showAbsorbance,
     xDomain,
     yDomain,
   ])
@@ -595,6 +710,7 @@ export default function Spectra({ paneIndex, paneState }) {
         onViewPan={handleViewPan}
         onResetZoom={handleResetZoom}
         applyHull={applyHull}
+        showAbsorbance={showAbsorbance}
         selectedColors={deferredSelectedColors}
         positionGuideWavelengths={positionGuideWavelengths}
       />
@@ -631,6 +747,16 @@ export default function Spectra({ paneIndex, paneState }) {
               disabled={status !== 'ready' || spectraLoading || !hasVisibleSpectra}
             >
               Hull
+            </button>
+          </span>
+          <span data-tooltip={ABSORBANCE_TOOLTIP}>
+            <button
+              type="button"
+              className={`spectra-band-button${showAbsorbance ? ' spectra-band-button--active' : ''}`}
+              onClick={handleAbsorbanceToggle}
+              disabled={plotBusy || !hasVisibleSpectra}
+            >
+              Absorbance
             </button>
           </span>
         </div>

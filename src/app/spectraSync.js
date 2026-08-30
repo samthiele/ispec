@@ -85,14 +85,26 @@ export function clampPlotYDomainMin(yDomain) {
   return [Math.max(0, lo), hi]
 }
 
-/** Drop saved y-axis limits that used the legacy 0–1 hull scale. */
-export function normalizePlotYDomain(yDomain) {
+/** Drop saved y-axis limits that used the legacy 0–1 hull scale (reflectance/hull only). */
+export function normalizePlotYDomain(yDomain, { absorbanceAxis = false } = {}) {
   if (!Array.isArray(yDomain) || yDomain.length !== 2) return null
   const lo = Number(yDomain[0])
   const hi = Number(yDomain[1])
   if (!Number.isFinite(lo) || !Number.isFinite(hi) || hi <= lo) return null
-  if (hi <= 2) return null
+  if (!absorbanceAxis && hi <= 2 && lo >= 0 && hi - lo <= 1.05) return null
   return clampPlotYDomainMin([lo, hi])
+}
+
+function yAxisPadding(yMin, yMax, { hullYAxis = false, absorbanceAxis = false } = {}) {
+  const span = yMax - yMin
+  if (hullYAxis) {
+    return Math.max((HULL_Y_MAX_PCT - yMin) * Y_AXIS_PAD_FRACTION, 1)
+  }
+  if (absorbanceAxis) {
+    if (!Number.isFinite(span) || span <= 0) return 1e-4
+    return Math.max(span * Y_AXIS_PAD_FRACTION, span * 0.01, 1e-6)
+  }
+  return Math.max(span * Y_AXIS_PAD_FRACTION, 1)
 }
 
 export function spansWavelengthRange(spectrum, xMin, xMax, thresh = HULL_BAND_THRESH_NM) {
@@ -163,11 +175,16 @@ export function defaultPlotDomains(spectra, xDomain = null, { hullYAxis = false 
   return computePlotExtents(spectra, null, null, { hullYAxis })
 }
 
-export function computePlotExtents(spectra, xDomain = null, yDomain = null, { hullYAxis = false } = {}) {
+export function computePlotExtents(
+  spectra,
+  xDomain = null,
+  yDomain = null,
+  { hullYAxis = false, absorbanceAxis = false } = {},
+) {
   if (!spectra.length) {
     return {
       xDomain: [0, 1],
-      yDomain: hullYAxis ? [0, HULL_Y_MAX_PCT] : [0, 100],
+      yDomain: hullYAxis ? [0, HULL_Y_MAX_PCT] : absorbanceAxis ? [0, 1] : [0, 100],
     }
   }
 
@@ -184,7 +201,7 @@ export function computePlotExtents(spectra, xDomain = null, yDomain = null, { hu
   const xMin = xDomain?.[0] ?? globalXMin
   const xMax = xDomain?.[1] ?? globalXMax
 
-  const explicitY = normalizePlotYDomain(yDomain) != null
+  const explicitY = normalizePlotYDomain(yDomain, { absorbanceAxis }) != null
 
   if (hullYAxis && !explicitY) {
     return {
@@ -211,13 +228,13 @@ export function computePlotExtents(spectra, xDomain = null, yDomain = null, { hu
     }
     if (!Number.isFinite(yMin) || !Number.isFinite(yMax)) {
       yMin = 0
-      yMax = hullYAxis ? HULL_Y_MAX_PCT : 100
+      yMax = hullYAxis ? HULL_Y_MAX_PCT : absorbanceAxis ? 1 : 100
     }
     if (hullYAxis) {
-      const pad = Math.max((HULL_Y_MAX_PCT - yMin) * Y_AXIS_PAD_FRACTION, 1)
+      const pad = yAxisPadding(yMin, yMax, { hullYAxis: true })
       yMin = Math.max(0, yMin - pad)
     } else {
-      const pad = Math.max((yMax - yMin) * Y_AXIS_PAD_FRACTION, 1)
+      const pad = yAxisPadding(yMin, yMax, { absorbanceAxis })
       yMin = Math.max(0, yMin - pad)
       yMax += pad
     }

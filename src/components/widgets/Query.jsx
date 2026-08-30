@@ -106,19 +106,19 @@ function QueryResultItem({
   isSelected,
   isHovered,
   nameStyle,
-  onSelect,
+  onToggle,
   onHover,
 }) {
-  const longPress = useLongPress(() => onSelect(name))
+  const longPress = useLongPress(() => onToggle(name))
 
   return (
     <li
       {...longPress}
       className={`query-result${isSelected ? ' query-result--selected' : ''}${isHovered ? ' query-item--hovered' : ''}`}
-      onDoubleClick={() => onSelect(name)}
+      onDoubleClick={() => onToggle(name)}
       onMouseEnter={() => onHover(name)}
       onMouseLeave={() => onHover(null)}
-      title={SELECT_ACTION_HINT}
+      title={isSelected ? DESELECT_ACTION_HINT : SELECT_ACTION_HINT}
     >
       <span className="query-result-rank">{rank}.</span>
       <span className="query-result-name" style={nameStyle}>
@@ -434,6 +434,14 @@ export default function Query() {
       setQueryState({ selection: next })
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
+    }
+  }
+
+  async function handleToggleResult(name) {
+    if (selectedSet.has(name)) {
+      await handleDeselect(name)
+    } else {
+      await handleSelectResult(name)
     }
   }
 
@@ -901,7 +909,7 @@ export default function Query() {
                         isSelected={isSelected}
                         isHovered={isHovered}
                         nameStyle={nameStyle}
-                        onSelect={handleSelectResult}
+                        onToggle={handleToggleResult}
                         onHover={setHoveredSpectrum}
                       />
                     )

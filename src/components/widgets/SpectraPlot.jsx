@@ -41,7 +41,11 @@ function chartPoint(event) {
   }
 }
 
-function buildSeriesSegments(wavelengths, reflectance, { maxGap = MAX_WAVELENGTH_GAP_NM } = {}) {
+function buildSeriesSegments(
+  wavelengths,
+  reflectance,
+  { maxGap = MAX_WAVELENGTH_GAP_NM, minY = Number.NEGATIVE_INFINITY } = {},
+) {
   const segments = []
   let current = []
   const n = Math.min(wavelengths.length, reflectance.length)
@@ -49,7 +53,13 @@ function buildSeriesSegments(wavelengths, reflectance, { maxGap = MAX_WAVELENGTH
   for (let i = 0; i < n; i += 1) {
     const x = wavelengths[i]
     const y = reflectance[i]
-    if (!Number.isFinite(x) || !Number.isFinite(y)) continue
+    if (!Number.isFinite(x) || !Number.isFinite(y) || y <= minY) {
+      if (current.length > 0) {
+        segments.push(current)
+        current = []
+      }
+      continue
+    }
 
     if (current.length > 0) {
       const gap = x - current[current.length - 1].x
@@ -111,13 +121,18 @@ function SpectraPlotInner({
   onViewPan,
   onResetZoom,
   applyHull = false,
+  showAbsorbance = false,
   selectedColors = {},
   positionGuideWavelengths = [],
 }) {
   const clipId = useId().replace(/:/g, '')
   const plotGestureRef = useRef(null)
   const coarsePointer = useCoarsePointer()
-  const yAxisLabel = applyHull ? 'Hull corrected reflectance (%)' : 'Reflectance (%)'
+  const yAxisLabel = showAbsorbance
+    ? 'Kubelka–Munk absorbance'
+    : applyHull
+      ? 'Hull corrected reflectance (%)'
+      : 'Reflectance (%)'
   const innerWidth = Math.max(width - margin.left - margin.right, 0)
   const innerHeight = Math.max(height - margin.top - margin.bottom, 0)
 
@@ -508,6 +523,7 @@ export default function SpectraPlot({
   onViewPan,
   onResetZoom,
   applyHull = false,
+  showAbsorbance = false,
   selectedColors = {},
   positionGuideWavelengths = [],
   hostRef,
@@ -543,6 +559,7 @@ export default function SpectraPlot({
             onViewPan={onViewPan}
             onResetZoom={onResetZoom}
             applyHull={applyHull}
+            showAbsorbance={showAbsorbance}
             selectedColors={selectedColors}
             positionGuideWavelengths={positionGuideWavelengths}
           />
