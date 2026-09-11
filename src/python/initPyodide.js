@@ -5,11 +5,25 @@ function pyodideIndexURL() {
   return `https://cdn.jsdelivr.net/pyodide/v${version}/full/`
 }
 
-async function installPackage(pyodide, { spec, deps }) {
+async function installFromSpec(pyodide, spec, deps) {
   await pyodide.runPythonAsync(`
 import micropip
 await micropip.install(${JSON.stringify(spec)}, deps=${deps ? 'True' : 'False'})
 `)
+}
+
+async function installPackage(pyodide, { spec, deps }) {
+  const candidates = Array.isArray(spec) ? spec : [spec]
+  let lastError
+  for (const candidate of candidates) {
+    try {
+      await installFromSpec(pyodide, candidate, deps)
+      return
+    } catch (error) {
+      lastError = error
+    }
+  }
+  throw lastError
 }
 
 async function ensureMicropip(pyodide) {

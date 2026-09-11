@@ -1,5 +1,7 @@
-export const HYLITE_WHEEL_URL =
-  'https://hifexplo.github.io/hylite/wheels/hylite-1.41.dev0-py3-none-any.whl'
+export const HYLITE_WHEEL_URLS = [
+  'https://hifexplo.github.io/hylite/wheels/hylite-latest-py3-none-any.whl',
+  'https://hifexplo.github.io/hylite/wheels/hylite-1.41-py3-none-any.whl',
+]
 
 export const DEFAULT_LIBRARY_ID = 'usgs_minerals'
 
@@ -7,7 +9,7 @@ export const PYTHON_PACKAGES = [
   { spec: 'numpy', deps: true, label: 'numpy' },
   { spec: 'gfit', deps: true, label: 'gfit' },
   { spec: 'tqdm', deps: true, label: 'tqdm' },
-  { spec: HYLITE_WHEEL_URL, deps: false, label: 'hylite' },
+  { spec: HYLITE_WHEEL_URLS, deps: false, label: 'hylite' },
 ]
 
 export const ISPEC_LIBRARY_BOOTSTRAP = `
